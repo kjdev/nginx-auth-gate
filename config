@@ -1,0 +1,18 @@
+ngx_addon_name=ngx_http_auth_require_module
+
+ngx_module_type=HTTP
+ngx_module_name="ngx_http_auth_require_module"
+ngx_module_deps=
+ngx_module_incs="$ngx_addon_dir/src"
+ngx_module_srcs="\
+  $ngx_addon_dir/src/ngx_auth_require_json.c \
+  $ngx_addon_dir/src/ngx_auth_require_jwt.c \
+  $ngx_addon_dir/src/ngx_auth_require_field.c \
+  $ngx_addon_dir/src/ngx_auth_require_operator.c \
+  $ngx_addon_dir/src/ngx_http_auth_require_module.c \
+"
+ngx_module_libs="\
+  -ljansson \
+"
+
+. auto/module
