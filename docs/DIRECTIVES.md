@@ -1,0 +1,381 @@
+# Directive and Variable Reference
+
+Reference for directives, operators, field path syntax, and embedded variables provided by the nginx auth_require module. See [EXAMPLES.md](EXAMPLES.md) for configuration examples and [README.md](../README.md) for a module overview.
+
+## Configuration Examples
+
+Practical configuration examples are available in [EXAMPLES.md](EXAMPLES.md).
+
+## Directives
+
+This module provides the following directives. There are 8 operators: `eq`, `gt`, `ge`, `lt`, `le`, `in`, `any`, and `match`, with negation possible via the `!` prefix.
+
+| Directive | Syntax | Function |
+|---|---|---|
+| [`auth_require`](#auth_require-truthiness-check--comparison) | `$var [...] [error=...]` | Variable truthiness check (commercial-compatible) |
+| | `$var <op> <expected> [error=...]` | Operator-based variable comparison |
+| [`auth_require_json`](#auth_require_json-json-field-validation) | `$var <field> <op> <expected> [error=...]` | JSON variable field validation |
+| [`auth_require_jwt`](#auth_require_jwt-jwt-claim-validation) | `$var <claim> <op> <expected> [error=...]` | JWT claim validation (no signature verification) |
+
+### auth_require (Truthiness Check / Comparison)
+
+```
+Syntax:  auth_require $variable [...] [error=4xx|5xx];
+         auth_require $variable <operator> <expected> [error=4xx|5xx];
+Default: —
+Context: http, server, location, limit_except
+```
+
+Operates in two modes.
+
+#### Truthiness Check Mode (Commercial-Compatible)
+
+When no operator is specified, verifies that all specified variables satisfy the following conditions:
+- Not an empty string
+- Not `"0"`
+
+Multiple variables can be specified. If any condition is not satisfied, the status code specified by `error` is returned (default: `403`).
+
+```nginx
+# Single variable truthiness check
+auth_require $oidc_claim_sub error=401;
+
+# Multiple variable AND check
+auth_require $is_admin $has_permission error=403;
+```
+
+#### Comparison Mode
+
+When an operator is specified, validates a single variable's value using the operator. The variable value is treated as a string and compared against the expected value. The expected value can also be specified as a JSON value using the `json=` prefix (see [Expected Value Type Specification](#expected-value-type-specification)).
+
+**Constraint**: In comparison mode, only one variable is allowed. Mixing multiple variables with operators is prohibited.
+
+```nginx
+# Equality comparison
+auth_require $arg_role eq "admin" error=403;
+
+# Negation
+auth_require $upstream_status !eq "200";
+
+# Check if contained in array
+auth_require $arg_type in json=["staff","admin"] error=403;
+
+# Regular expression match
+auth_require $http_x_api_key match "^sk-[a-zA-Z0-9]+$" error=401;
+```
+
+**Mode determination**: If the second argument starts with `$`, it is interpreted as multiple variable mode (truthiness check). If it starts with `error=`, it is an error code specification. Otherwise, it is interpreted as comparison mode.
+
+#### Configuration Merging
+
+Multiple `auth_require` directives can be specified. Each directive is evaluated independently, and if any one fails, the corresponding error code is returned (AND condition).
+
+When defined in both a parent context (server) and a child context (location), the parent's requirements are prepended and the child's requirements are appended.
+
+```nginx
+server {
+    auth_require $oidc_claim_sub error=401;  # Base requirement
+
+    location /admin {
+        auth_require $is_admin error=403;  # Additional requirement
+        # Merge result: $oidc_claim_sub (401) AND $is_admin (403)
+    }
+}
+```
+
+### auth_require_json (JSON Field Validation)
+
+```
+Syntax:  auth_require_json $variable <field> <operator> <expected>
+                           [error=4xx|5xx];
+Default: —
+Context: http, server, location, limit_except
+```
+
+Parses the variable value as JSON and validates the field specified by `<field>` using the `<operator>`.
+
+- `<field>`: JQ-like field path (see [Field Path Syntax](#field-path-syntax)). Must start with `.`
+- `<operator>`: Comparison operator (see [Operators](#operators))
+- `<expected>`: Expected value. Can include variables. Use the `json=` prefix to specify JSON values (see [Expected Value Type Specification](#expected-value-type-specification))
+- `error`: HTTP status code to return on validation failure (default: `403`)
+
+```nginx
+# Root value comparison (. = root)
+auth_require_json $oidc_claim_role . eq "admin" error=403;
+
+# Field specification
+auth_require_json $oidc_claims .role eq "admin" error=403;
+
+# Numeric comparison (specify as JSON number with json= prefix)
+auth_require_json $oidc_claims .age ge json=18;
+
+# Comparison with JSON value (json= prefix)
+auth_require_json $oidc_claims .groups any json=["staff","admin"];
+
+# Nested fields
+auth_require_json $oidc_claims .user.profile.role eq "admin";
+
+# Array element access
+auth_require_json $oidc_claims .keys[0] eq "primary";
+
+# Field name containing dots (quoted bracket notation)
+auth_require_json $oidc_claims .["https://example.com/roles"] any json=["admin"];
+
+# Regular expression match
+auth_require_json $oidc_claims .email match "^.*@example\\.com$";
+```
+
+### auth_require_jwt (JWT Claim Validation)
+
+```
+Syntax:  auth_require_jwt $variable <claim> <operator> <expected>
+                          [error=4xx|5xx];
+Default: —
+Context: http, server, location, limit_except
+```
+
+Decodes the variable value as a JWT token (base64url decode) and validates claims in the payload.
+
+**No signature verification is performed**. JWT authentication (signature verification) is the responsibility of authentication modules such as `auth_jwt` and `auth_oidc`. This directive handles only authorization (validation of claim values).
+
+JWT decode process:
+1. Split the token by `.`
+2. Base64url decode the second segment (payload)
+3. Parse the decoded result as JSON
+4. Apply the same field validation logic as `auth_require_json`
+
+```nginx
+# Use a signature-verified token variable (see SECURITY.md)
+set $token $oidc_access_token;
+
+auth_require_jwt $token .sub !eq "" error=401;
+auth_require_jwt $token .scope any json=["api:read","api:write"] error=403;
+
+# Nested claims
+auth_require_jwt $token .resource_access.my-app.roles any json=["admin"];
+
+# Special keys (URL-format claim names)
+auth_require_jwt $token .["https://example.com/roles"] any json=["admin"];
+```
+
+**Security note**: This directive does not perform JWT signature verification. If you use a JWT token obtained from HTTP headers or cookies directly as a validation source, there is a risk of payload tampering by clients. Always perform signature verification using an upstream authentication module (`auth_jwt`, `auth_oidc`, etc.) before use. See [SECURITY.md](SECURITY.md) for details.
+
+## Operators
+
+Use 8 affirmative operators combined with negation via the `!` prefix.
+
+| Operator | Negation | Meaning | Input Type | Expected Type |
+|----------|----------|---------|------------|---------------|
+| `eq` | `!eq` | Equal / Not equal | All types | Same type |
+| `gt` | — | Greater than | Numeric/String | Numeric/String |
+| `ge` | — | Greater than or equal | Numeric/String | Numeric/String |
+| `lt` | — | Less than | Numeric/String | Numeric/String |
+| `le` | — | Less than or equal | Numeric/String | Numeric/String |
+| `in` | `!in` | Value contained in array/object | Value | Array/Object |
+| `any` | `!any` | Common elements between arrays | Array | Array |
+| `match` | `!match` | Regular expression match | String | String (regex pattern) |
+
+### in Operator Behavior
+
+Behavior varies depending on the expected value type:
+
+- When the expected value is an **array**: Validates whether the input value matches any element in the array
+- When the expected value is an **object**: Validates whether the input value (string) matches any **key** of the object
+
+### Comparison Operator Type Conversion
+
+`gt`/`ge`/`lt`/`le` prioritize numeric comparison. If both operands are not numeric, it falls back to string comparison (lexicographic order). If one is numeric and the other is a string, the comparison fails (validation failure).
+
+### match Operator Applications
+
+The `match` operator uses nginx/PCRE regular expressions. nginx must be built with PCRE support (`--with-pcre` option). Without PCRE, the `match` operator is unavailable.
+
+`contains` (substring search), `prefix` (prefix match), and `suffix` (suffix match) can all be expressed using `match`:
+
+| Use Case | `match` Expression |
+|----------|-------------------|
+| Contains | `match "substring"` |
+| Prefix match | `match "^prefix"` |
+| Suffix match | `match "suffix$"` |
+| Complex pattern | `match "^[a-z]+@example\\.com$"` |
+
+> **Note**: nginx's configuration parser interprets `$` as a variable prefix, so using `$` as a regex end-of-string anchor will cause a configuration error. Use PCRE's `\z` (end-of-string anchor) instead:
+>
+> ```nginx
+> # BAD: $ is interpreted as a variable prefix by nginx
+> auth_require $var match "^admin$";
+>
+> # OK: \z is PCRE's end-of-string anchor
+> auth_require $var match "^admin\\z";
+> ```
+
+### Negation Mechanism
+
+Prepending `!` to an operator name inverts the result. Negation is syntactically possible for all operators, but negation of comparison operators (`gt`/`ge`/`lt`/`le`) is typically not meaningful, which is why they are shown as `—` in the table.
+
+## Field Path Syntax
+
+Field paths use JQ-like syntax to specify fields and array elements within JSON values. **They always start with `.`**.
+
+| Notation | Example | Interpretation |
+|----------|---------|----------------|
+| Root | `.` | Entire JSON value |
+| Simple key | `.role` | Top-level `["role"]` |
+| Dot-separated | `.user.profile.role` | Nested `["user"]["profile"]["role"]` |
+| Array index | `.keys[0]` | First element of `["keys"]` |
+| Root array | `.[0]` | First element of root array |
+| Quoted bracket | `.["https://example.com/role"]` | Key containing special characters |
+| Compound path | `.users[0].name` | `["users"][0]["name"]` |
+
+**Why the `.` prefix is required**: For parser disambiguation. Tokens starting with `.` are uniquely identified as field paths, and tokens starting with operator keywords are identified as operators. This allows fields named `eq` or `match` to be handled without issues.
+
+**Parse grammar**:
+
+```
+field_path := "."                       /* root */
+            | "." first rest*           /* path */
+
+first      := identifier                /* key */
+            | bracket                   /* [0] or ["key"] */
+
+rest       := "." identifier            /* .key */
+            | bracket                   /* [0] or ["key"] */
+
+bracket    := "[" integer "]"           /* [0] */
+            | '["' string '"]'          /* ["special.key"] */
+
+identifier := [a-zA-Z_][a-zA-Z0-9_-]*
+integer    := [0-9]+
+string     := (any character, " escaped as \")
+```
+
+## Expected Value Type Specification
+
+The expected value (`<expected>`) can be specified in the following ways:
+
+| Specification | Example | Interpretation |
+|--------------|---------|----------------|
+| Literal string | `"admin"` | JSON string `"admin"` |
+| nginx variable | `$expected_role` | Variable value treated as JSON string |
+| `json=` prefix | `json=["a","b"]` | Everything after `=` parsed as JSON |
+| Numeric literal | `18` | Treated as JSON string `"18"` (use `json=18` for numeric comparison) |
+
+**`json=` prefix**: Used to specify non-string types such as JSON arrays, objects, and booleans. To parse a variable value as JSON, write `json=$variable`.
+
+```nginx
+# JSON array
+auth_require_json $claims .roles any json=["admin","staff"];
+
+# JSON boolean
+auth_require_json $claims .email_verified eq json=true;
+
+# JSON object
+auth_require_json $claims .metadata eq json={"key":"value"};
+```
+
+## Undefined/Empty Variable Behavior
+
+When an nginx variable is undefined or empty, each directive handles it as follows:
+
+| Context | Behavior |
+|---------|----------|
+| `auth_require` truthiness check | Empty string = false (validation fails, returns `error` code) |
+| `auth_require` comparison mode | Treated as empty string `""` and compared with operator |
+| `auth_require_json` | Empty string -> JSON parse failure -> returns `error` code |
+| `auth_require_jwt` | Empty string -> JWT decode failure -> returns `error` code |
+| Expected value (`<expected>`) | Treated as empty string `""` and compared as JSON string `""` |
+
+> **Note**: Undefined variables are evaluated as empty strings per nginx specification. For `auth_require_json` and `auth_require_jwt`, empty variables result in parse/decode errors and are safely handled in a fail-closed manner.
+
+## Evaluation Order and Grouping
+
+### Evaluation Order
+
+Directives are evaluated in the following order. When any validation fails, short-circuit evaluation (skipping remaining validations) returns the error code of the failed directive:
+
+1. `auth_require` (truthiness check mode)
+2. `auth_require` (comparison mode)
+3. `auth_require_json`
+4. `auth_require_jwt`
+
+This order is fixed and does not depend on the order of directives in the configuration file.
+
+### Variable Grouping
+
+For `auth_require_json` and `auth_require_jwt`, **directives referencing the same variable are automatically grouped**. Within a group, the variable value is parsed (JSON parse / JWT decode) only once, and multiple requirements are validated sequentially.
+
+```nginx
+# The following 3 directives form 1 group under $oidc_claims
+auth_require_json $oidc_claims .role eq "admin" error=403;
+auth_require_json $oidc_claims .email_verified eq json=true error=403;
+auth_require_json $oidc_claims .age ge json=18 error=403;
+```
+
+### Grouping and Error Codes
+
+Due to grouping, the error code returned during short-circuit evaluation may differ from the intended code:
+
+- **When an individual requirement fails**: The `error` code specified for that requirement is returned
+- **When JSON parse / JWT decode fails**: The `error` code of the **first requirement in the group** is returned
+
+```nginx
+# If JSON parsing fails within the group, the first requirement's error code (error=403) is returned
+auth_require_json $claims .role eq "admin" error=403;
+auth_require_json $claims .sub !eq "" error=401;
+```
+
+If you need strict control with different error codes, consider using different variable names to separate groups.
+
+## Directive Selection Guide
+
+| Scenario | Recommended Directive |
+|----------|----------------------|
+| Just verify a variable is not empty | `auth_require $var` (truthiness mode) |
+| Variable is a simple string value and you want to compare with operators | `auth_require $var <op> <expected>` |
+| Variable is a JSON string and you want to validate specific fields | `auth_require_json` |
+| Variable is a JWT token and you want to validate claims | `auth_require_jwt` |
+
+## Limits
+
+Each directive and operator has limit values configured for DoS defense. Key limits that may affect operations:
+
+- JSON parse size limit: 1 MiB (input data for `auth_require_json` / `auth_require_jwt`)
+- JWT token size limit: 16 KiB (token length for `auth_require_jwt`)
+- Array element count limit for `in` / `any` operators: 1,024
+- Field path depth limit: 32 segments; array index limit: 65,535
+- `error=` parameter: range 400-599 (444/499 rejected as nginx internal codes)
+
+See [SECURITY.md](SECURITY.md) for the complete list of limits and security details.
+
+## Embedded Variables
+
+### $auth_require_epoch
+
+**Description**: Variable that returns the current UNIX epoch time (seconds)
+
+**Value**: Timestamp at the time of request processing (e.g., `1740000000`)
+
+**Purpose**: Used for comparing against time-based claims such as JWT `exp` (expiration time) and `nbf` (not before time) with the current time.
+
+**Usage examples**:
+```nginx
+# JWT expiration check (exp > current time)
+auth_require_jwt $token .exp gt json=$auth_require_epoch error=401;
+
+# JWT not-before check (nbf <= current time)
+auth_require_jwt $token .nbf le json=$auth_require_epoch;
+```
+
+By adding the `json=` prefix, the variable value is parsed as a number in JSON, enabling correct comparison with numeric JWT claims.
+
+**Characteristics**:
+- `NGX_HTTP_VAR_NOCACHEABLE`: Re-evaluated for each request (not cached)
+
+## Related Documentation
+
+- [README.md](../README.md): Module overview and quick start
+- [EXAMPLES.md](EXAMPLES.md): Quick start and practical configuration examples
+- [INSTALL.md](INSTALL.md): Installation guide (prerequisites, build instructions)
+- [SECURITY.md](SECURITY.md): Security considerations (JWT signature verification, input validation)
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md): Troubleshooting (common issues, log inspection)
+- [COMMERCIAL_COMPATIBILITY.md](COMMERCIAL_COMPATIBILITY.md): Commercial version compatibility
