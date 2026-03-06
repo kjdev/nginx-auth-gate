@@ -1,6 +1,6 @@
 # Installation
 
-Instructions for installing the nginx auth_require module.
+Instructions for installing the nginx auth_gate module.
 
 ## Prerequisites
 
@@ -71,7 +71,7 @@ cd nginx-x.y.z
 **Options**:
 - `--with-compat`: Enable dynamic module compatibility
 - `--with-pcre`: PCRE regular expression support (required for `match` operator). The module itself works without this option, but `match` / `!match` operators become unavailable
-- `--add-dynamic-module`: Build auth_require module as a dynamic module
+- `--add-dynamic-module`: Build auth_gate module as a dynamic module
 
 ### Step 3: Build
 
@@ -84,7 +84,7 @@ make
 Upon successful build, the dynamic module will be generated:
 
 ```bash
-ls -l objs/ngx_http_auth_require_module.so
+ls -l objs/ngx_http_auth_gate_module.so
 ```
 
 ### Step 5: Load the Module
@@ -92,7 +92,7 @@ ls -l objs/ngx_http_auth_require_module.so
 Add the following to the top level of the nginx configuration file (typically `/etc/nginx/nginx.conf`):
 
 ```nginx
-load_module "/path/to/objs/ngx_http_auth_require_module.so";
+load_module "/path/to/objs/ngx_http_auth_gate_module.so";
 ```
 
 ### Step 6: Validate Configuration and Start
@@ -115,12 +115,12 @@ You can build nginx with the module using a Docker image.
 
 ```bash
 # Build the Docker image
-docker build -t nginx-auth-require .
+docker build -t nginx-auth-gate .
 
 # Start the container
 docker run -d -p 80:80 \
     -v /path/to/default.conf:/etc/nginx/conf.d/default.conf:ro \
-    nginx-auth-require
+    nginx-auth-gate
 ```
 
 The Dockerfile is pre-configured to automatically load the module.
@@ -132,4 +132,4 @@ The Dockerfile is pre-configured to automatically load the module.
 - [EXAMPLES.md](EXAMPLES.md): Quick start and practical configuration examples
 - [SECURITY.md](SECURITY.md): Security considerations (JWT signature verification, input validation)
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): Troubleshooting (common issues, log inspection)
-- [COMMERCIAL_COMPATIBILITY.md](COMMERCIAL_COMPATIBILITY.md): Commercial version compatibility
+- [COMMERCIAL_COMPATIBILITY.md](COMMERCIAL_COMPATIBILITY.md): Commercial auth_require compatibility

@@ -1,16 +1,16 @@
 # Security Considerations
 
-Security guidelines for safely using the nginx auth_require module.
+Security guidelines for safely using the nginx auth_gate module.
 
 ## JWT Signature Verification
 
-The `auth_require_jwt` directive **does not perform JWT signature verification**. It only base64url decodes the JWT payload and validates claim values.
+The `auth_gate_jwt` directive **does not perform JWT signature verification**. It only base64url decodes the JWT payload and validates claim values.
 
-JWT authentication (signature verification) is the responsibility of authentication modules such as `auth_jwt` and `auth_oidc`. `auth_require_jwt` handles only authorization (validation of claim values).
+JWT authentication (signature verification) is the responsibility of authentication modules such as `auth_jwt` and `auth_oidc`. `auth_gate_jwt` handles only authorization (validation of claim values).
 
 **Tampering risk**: When using HTTP header or cookie values directly as JWT without signature verification, clients can freely tamper with the payload. For example:
 
-- If you pass `$http_authorization` or `$cookie_token` directly to `auth_require_jwt`, an attacker can send a JWT with arbitrary claim values
+- If you pass `$http_authorization` or `$cookie_token` directly to `auth_gate_jwt`, an attacker can send a JWT with arbitrary claim values
 - Simply base64url encoding a payload like `{"role": "admin"}` and setting it in a header could bypass authorization checks
 
 **Recommended configuration**: Always perform signature verification with an upstream authentication module and validate claims against **signature-verified tokens**.
@@ -22,7 +22,7 @@ server {
 
     location /api {
         # Authorization: validate claim values of signature-verified tokens
-        auth_require_jwt $token .role eq "admin" error=403;
+        auth_gate_jwt $token .role eq "admin" error=403;
         proxy_pass http://backend;
     }
 }
@@ -30,7 +30,7 @@ server {
 
 ### Dangerous Variable Patterns
 
-The following variables, when passed directly to `auth_require_jwt`, allow clients to bypass claim validation using tampered JWTs:
+The following variables, when passed directly to `auth_gate_jwt`, allow clients to bypass claim validation using tampered JWTs:
 
 | Variable | Risk |
 |----------|------|
@@ -52,7 +52,7 @@ The following variables, when passed directly to `auth_require_jwt`, allow clien
 # BAD: Using an unverified Cookie value directly -- tamperable
 location /api {
     set $token $cookie_access_token;
-    auth_require_jwt $token .role eq "admin" error=403;  # Can be bypassed!
+    auth_gate_jwt $token .role eq "admin" error=403;  # Can be bypassed!
     proxy_pass http://backend;
 }
 ```
@@ -89,10 +89,10 @@ Using external input (user-controllable values) as `match` operator patterns is 
 
 ```nginx
 # BAD: Using user input as a pattern -- ReDoS attack possible
-auth_require $variable match $arg_pattern;
+auth_gate $variable match $arg_pattern;
 
 # OK: Validating user input with a constant pattern
-auth_require $variable match "^[a-zA-Z0-9_]+$";
+auth_gate $variable match "^[a-zA-Z0-9_]+$";
 ```
 
 ## DoS Defense Mechanisms
@@ -101,8 +101,8 @@ The module has the following limit values implemented:
 
 | Limit | Value | Target |
 |-------|-------|--------|
-| JSON parse size limit | 1 MiB | Input data for `auth_require_json` / `auth_require_jwt` |
-| JWT token size limit | 16 KiB | Token length for `auth_require_jwt` |
+| JSON parse size limit | 1 MiB | Input data for `auth_gate_json` / `auth_gate_jwt` |
+| JWT token size limit | 16 KiB | Token length for `auth_gate_jwt` |
 | Expected value size limit | 64 KiB | Byte size of `<expected>` value |
 | Array size limit | 1,024 | Array element count for `in` / `any` operators |
 | Comparison count limit | 10,000 | O(n*m) comparison count for `any` operator |
@@ -140,8 +140,8 @@ It is recommended to use different error codes for authentication and authorizat
 
 | Status Code | Use | Example |
 |-------------|-----|---------|
-| `401` | Authentication error (user not identified) | `auth_require $oidc_claim_sub error=401;` |
-| `403` | Authorization error (insufficient permissions) | `auth_require_json $claims .role eq "admin" error=403;` |
+| `401` | Authentication error (user not identified) | `auth_gate $oidc_claim_sub error=401;` |
+| `403` | Authorization error (insufficient permissions) | `auth_gate_json $claims .role eq "admin" error=403;` |
 
 ## Known Limitations
 
@@ -166,4 +166,4 @@ The `eq` operator internally uses the Jansson library's `json_equal()` function 
 - [EXAMPLES.md](EXAMPLES.md): Quick start and practical configuration examples
 - [INSTALL.md](INSTALL.md): Installation guide (prerequisites, build instructions)
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md): Troubleshooting (common issues, log inspection)
-- [COMMERCIAL_COMPATIBILITY.md](COMMERCIAL_COMPATIBILITY.md): Commercial version compatibility
+- [COMMERCIAL_COMPATIBILITY.md](COMMERCIAL_COMPATIBILITY.md): Commercial auth_require compatibility

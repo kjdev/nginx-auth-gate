@@ -1,26 +1,18 @@
 # Commercial Version Compatibility
 
-Describes the compatibility between the nginx auth_require module and the [`auth_require` directive from the nginx commercial subscription](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html).
+Describes the compatibility between the nginx auth_gate module and the [`auth_require` directive from the nginx commercial subscription](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html).
 
 ## Overview
 
-This module is an OSS implementation of the `auth_require` directive from the nginx commercial subscription.
+The truthiness check mode (without operator) of the `auth_gate` directive behaves equivalently to the `auth_require` directive from the nginx commercial subscription. The syntax and behavior for basic truthiness checks — verifying that a variable is not an empty string and not `"0"` — are identical.
 
-**Commercial-compatible**: The truthiness check mode of the `auth_require` directive is compatible with the commercial version.
+```nginx
+# auth_gate truthiness check mode (equivalent to commercial auth_require)
+auth_gate $oidc_claim_sub error=401;
+auth_gate $is_admin $has_permission error=403;
+```
 
-**Extensions**: The following features are provided as proprietary extensions not available in the commercial version:
-- Operator comparison mode for `auth_require`
-- `auth_require_json` directive (JSON field validation)
-- `auth_require_jwt` directive (JWT claim validation)
-
-## Directive Comparison
-
-| Commercial Version | OSS Version (This Module) | Compatibility |
-|-------------------|--------------------------|---------------|
-| `auth_require $var [error=...]` | `auth_require $var [error=...]` | Fully compatible |
-| — | `auth_require $var <op> <expected> [error=...]` | Proprietary extension |
-| — | `auth_require_json $var <field> <op> <expected> [error=...]` | Proprietary extension |
-| — | `auth_require_jwt $var <claim> <op> <expected> [error=...]` | Proprietary extension |
+The auth_gate module additionally provides operator-based comparison mode (`auth_gate $var <op> <expected>`), JSON field validation (`auth_gate_json`), and JWT claim validation (`auth_gate_jwt`).
 
 ## Related Documentation
 

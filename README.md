@@ -1,19 +1,19 @@
-# nginx auth_require Module
+# nginx auth_gate Module
 
 ## Overview
 
 ### About This Module
 
-The nginx auth_require module is a dynamic module that adds variable truthiness checking and comparison validation capabilities to nginx. In addition to simple variable truthiness checks, it provides JSON field validation and JWT claim validation as extended features.
+The nginx auth_gate module is a dynamic module that adds variable value comparison validation, JSON field validation, and JWT claim validation capabilities to nginx. It operates in nginx's ACCESS phase, validating authorization conditions before requests reach the backend.
 
-This module operates in nginx's ACCESS phase, validating authorization conditions before requests reach the backend. By combining it with other authentication modules (`auth_oidc`, `auth_jwt`, etc.), you can achieve flexible access control.
+By combining it with other authentication modules (`auth_oidc`, `auth_jwt`, etc.), you can achieve flexible access control.
 
 **Example use cases**:
-- Check whether variables set by authentication modules are valid (i.e., user is logged in)
 - Compare variable values using operators to verify specific conditions
 - Validate specific roles or permissions from JSON such as OIDC claims
 - Directly validate scopes or expiration times from JWT token payloads
 - Combine the above conditions with AND for complex access control
+- Variable truthiness checks (not empty, not `"0"`)
 
 **Scope**: This module handles **authorization**. Authentication (user identity verification and JWT signature verification) is delegated to separate modules such as `auth_jwt` and `auth_oidc` by design. Note that JWT signature verification is planned as a future feature addition.
 
@@ -21,11 +21,9 @@ This module operates in nginx's ACCESS phase, validating authorization condition
 
 This module handles authorization, with authentication delegated to separate modules by design. There are important considerations regarding JWT signature verification in particular. See [SECURITY.md](docs/SECURITY.md) for details.
 
-### Relationship to the Commercial Version
+### Relationship to the Commercial auth_require
 
-This module is an OSS implementation of the [`auth_require` directive from the nginx commercial subscription](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html). The truthiness check mode of the `auth_require` directive is fully compatible with the commercial version, and additionally provides operator comparison, JSON field validation, and JWT claim validation as proprietary extensions.
-
-See [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md) for details.
+The `auth_gate` directive also provides truthiness check functionality equivalent to the [`auth_require` directive from the nginx commercial subscription](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html). See [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md) for details.
 
 **License**: MIT License
 
@@ -33,47 +31,34 @@ See [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md) for details.
 
 See [INSTALL.md](docs/INSTALL.md) for installation instructions.
 
-### Minimal Configuration (Commercial-Compatible)
+### Minimal Configuration
 
-The following is a minimal configuration example that demonstrates the auth_require module in action (equivalent to the [commercial version sample](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html)):
+The following are minimal examples of each directive provided by the auth_gate module:
 
 ```nginx
-load_module "/usr/lib/nginx/modules/ngx_http_auth_require_module.so";
+load_module "/usr/lib/nginx/modules/ngx_http_auth_gate_module.so";
 
 http {
-    # Used in combination with authentication modules such as auth_oidc
-    # oidc_provider my_idp { ... }
-
-    map $oidc_claim_role $admin_role {
-        "admin"  1;
-    }
-
     server {
-        # auth_oidc my_idp;
-
+        # auth_gate: compare variable values with operators
         location /admin {
-            auth_require $admin_role;
+            auth_gate $arg_role eq "admin" error=403;
+            proxy_pass http://backend;
+        }
+
+        # auth_gate_json: validate fields in a JSON variable
+        location /api {
+            auth_gate_json $json .role eq "admin" error=403;
+            proxy_pass http://backend;
+        }
+
+        # auth_gate_jwt: validate JWT token claims (assumes signature verification by another module)
+        location /external {
+            auth_gate_jwt $token .sub !eq "" error=401;
             proxy_pass http://backend;
         }
     }
 }
-```
-
-The basic pattern is to map claim values to variables using the `map` directive and perform truthiness checks with `auth_require`. `$admin_role` becomes `1` only when `role` is `"admin"`, and is empty (falsy) otherwise.
-
-### Minimal Extension Examples
-
-The following are minimal examples of each of this module's extension features:
-
-```nginx
-# auth_require comparison mode: compare variable values with operators
-auth_require $arg_role eq "admin" error=403;
-
-# auth_require_json: validate fields in a JSON variable
-auth_require_json $oidc_claims .role eq "admin" error=403;
-
-# auth_require_jwt: validate JWT token claims (assumes signature verification by another module)
-auth_require_jwt $token .sub !eq "" error=401;
 ```
 
 ## Directives
@@ -82,9 +67,9 @@ This module provides the following directives. See [DIRECTIVES.md](docs/DIRECTIV
 
 | Directive | Function |
 |---|---|
-| `auth_require` | Variable truthiness check (commercial-compatible) + operator comparison mode |
-| `auth_require_json` | Parse variable value as JSON and validate specified fields with operators |
-| `auth_require_jwt` | Decode variable value as JWT and validate payload claims (no signature verification) |
+| `auth_gate` | Operator-based variable value comparison, and variable truthiness check |
+| `auth_gate_json` | Parse variable value as JSON and validate specified fields with operators |
+| `auth_gate_jwt` | Decode variable value as JWT and validate payload claims (no signature verification) |
 
 There are 8 operators: `eq`, `gt`, `ge`, `lt`, `le`, `in`, `any`, and `match`, with negation possible via the `!` prefix.
 
@@ -94,38 +79,38 @@ This module provides the following nginx variables. See [DIRECTIVES.md](docs/DIR
 
 | Variable | Description |
 |----------|-------------|
-| `$auth_require_epoch` | Current UNIX epoch time (seconds) |
+| `$auth_gate_epoch` | Current UNIX epoch time (seconds) |
 
 ## Appendix
 
 ### Processing Flow Overview
 
-The auth_require module operates in nginx's ACCESS phase. For each request, validations are executed in the following order. When any validation fails, short-circuit evaluation (skipping remaining checks) returns the corresponding `error` code (default: `403`). The request proceeds to the next phase only if all validations pass.
+The auth_gate module operates in nginx's ACCESS phase. For each request, validations are executed in the following order. When any validation fails, short-circuit evaluation (skipping remaining checks) returns the corresponding `error` code (default: `403`). The request proceeds to the next phase only if all validations pass.
 
 ```mermaid
 flowchart TD
     Start([Request received<br>ACCESS phase]) --> A
 
     A["`**1. require_vars**
-    auth_require (no operator)
+    auth_gate (no operator)
     Verify each variable is not empty / &quot;0&quot;`"]
     A -->|Fail| A_err([Return error])
     A -->|Pass| B
 
     B["`**2. require_compare**
-    auth_require (with operator)
+    auth_gate (with operator)
     Validate variable value with operator`"]
     B -->|Fail| B_err([Return error])
     B -->|Pass| C
 
     C["`**3. require_json**
-    auth_require_json
+    auth_gate_json
     JSON parse -> field extraction -> validate with operator`"]
     C -->|Fail| C_err([Return error])
     C -->|Pass| D
 
     D["`**4. require_jwt**
-    auth_require_jwt
+    auth_gate_jwt
     JWT decode -> claim extraction -> validate with operator`"]
     D -->|Fail| D_err([Return error])
     D -->|Pass| OK
@@ -153,5 +138,4 @@ flowchart TD
 
 **Reference**:
 
-- [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md): Commercial version compatibility
-
+- [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md): Commercial auth_require compatibility
