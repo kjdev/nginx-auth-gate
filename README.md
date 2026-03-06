@@ -87,36 +87,7 @@ This module provides the following nginx variables. See [DIRECTIVES.md](docs/DIR
 
 The auth_gate module operates in nginx's ACCESS phase. For each request, validations are executed in the following order. When any validation fails, short-circuit evaluation (skipping remaining checks) returns the corresponding `error` code (default: `403`). The request proceeds to the next phase only if all validations pass.
 
-```mermaid
-flowchart TD
-    Start([Request received<br>ACCESS phase]) --> A
-
-    A["`**1. require_vars**
-    auth_gate (no operator)
-    Verify each variable is not empty / &quot;0&quot;`"]
-    A -->|Fail| A_err([Return error])
-    A -->|Pass| B
-
-    B["`**2. require_compare**
-    auth_gate (with operator)
-    Validate variable value with operator`"]
-    B -->|Fail| B_err([Return error])
-    B -->|Pass| C
-
-    C["`**3. require_json**
-    auth_gate_json
-    JSON parse -> field extraction -> validate with operator`"]
-    C -->|Fail| C_err([Return error])
-    C -->|Pass| D
-
-    D["`**4. require_jwt**
-    auth_gate_jwt
-    JWT decode -> claim extraction -> validate with operator`"]
-    D -->|Fail| D_err([Return error])
-    D -->|Pass| OK
-
-    OK([NGX_OK — proceed to next phase])
-```
+![Processing Flow](docs/images/processing-flow.png)
 
 ### Standards References
 
