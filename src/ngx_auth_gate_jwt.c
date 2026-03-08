@@ -6,7 +6,7 @@
  *
  * Extracts and decodes the JWT payload segment (base64url).
  * No signature verification is performed — authentication is
- * delegated to auth_jwt or auth_oidc modules.
+ * delegated to auth_jwt or oidc modules.
  *
  * Based on ngx_oidc_jwt_decode_payload() from the OIDC module.
  */
@@ -120,6 +120,58 @@ ngx_auth_gate_jwt_decode_payload(ngx_str_t *token, ngx_pool_t *pool)
     if (json == NULL) {
         ngx_log_error(NGX_LOG_ERR, pool->log, 0,
                       "auth_gate_jwt: payload JSON parse failed");
+        return NULL;
+    }
+
+    return json;
+}
+
+
+ngx_auth_gate_json_t *
+ngx_auth_gate_jwt_decode_header(ngx_str_t *header_b64, ngx_pool_t *pool)
+{
+    u_char *decoded;
+    ngx_str_t header;
+    size_t decoded_len;
+    ngx_auth_gate_json_t *json;
+
+    if (header_b64 == NULL || header_b64->data == NULL
+        || header_b64->len == 0 || pool == NULL)
+    {
+        return NULL;
+    }
+
+    if (header_b64->len > NGX_AUTH_GATE_MAX_JWT_HEADER_LENGTH) {
+        ngx_log_error(NGX_LOG_ERR, pool->log, 0,
+                      "auth_gate_jwt: header segment too large: %uz",
+                      header_b64->len);
+        return NULL;
+    }
+
+    decoded_len = ngx_base64_decoded_length(header_b64->len);
+    decoded = ngx_pnalloc(pool, decoded_len + 1);
+    if (decoded == NULL) {
+        return NULL;
+    }
+
+    header.data = decoded;
+
+    if (ngx_decode_base64url(&header, header_b64) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, pool->log, 0,
+                      "auth_gate_jwt: header base64url decode failed");
+        ngx_memzero(decoded, decoded_len + 1);
+        return NULL;
+    }
+
+    header.data[header.len] = '\0';
+
+    json = ngx_auth_gate_json_parse(&header);
+
+    ngx_memzero(decoded, decoded_len + 1);
+
+    if (json == NULL) {
+        ngx_log_error(NGX_LOG_ERR, pool->log, 0,
+                      "auth_gate_jwt: header JSON parse failed");
         return NULL;
     }
 

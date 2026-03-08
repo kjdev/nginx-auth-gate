@@ -7,12 +7,15 @@ ngx_module_incs="$ngx_addon_dir/src"
 ngx_module_srcs="\
   $ngx_addon_dir/src/ngx_auth_gate_json.c \
   $ngx_addon_dir/src/ngx_auth_gate_jwt.c \
+  $ngx_addon_dir/src/ngx_auth_gate_jwks.c \
+  $ngx_addon_dir/src/ngx_auth_gate_jws.c \
   $ngx_addon_dir/src/ngx_auth_gate_field.c \
   $ngx_addon_dir/src/ngx_auth_gate_operator.c \
   $ngx_addon_dir/src/ngx_http_auth_gate_module.c \
 "
 ngx_module_libs="\
   -ljansson \
+  -lcrypto \
 "
 
 . auto/module

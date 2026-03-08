@@ -10,6 +10,7 @@
 #include "ngx_http_auth_gate_module.h"
 #include "ngx_auth_gate_json.h"
 #include "ngx_auth_gate_jwt.h"
+#include "ngx_auth_gate_jws.h"
 
 #define NGX_HTTP_AUTH_GATE_DEFAULT_ERROR  NGX_HTTP_FORBIDDEN
 #define NGX_HTTP_AUTH_GATE_JSON_PREFIX_LEN  5
@@ -34,6 +35,8 @@ static char *ngx_http_auth_gate_conf_set_require(ngx_conf_t *cf,
 static char *ngx_http_auth_gate_conf_set_json(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
 static char *ngx_http_auth_gate_conf_set_jwt(ngx_conf_t *cf,
+    ngx_command_t *cmd, void *conf);
+static char *ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
 
 /* Variable handler */
@@ -66,6 +69,8 @@ static char *require_parse_requirement(ngx_conf_t *cf, ngx_str_t *args,
 static ngx_int_t require_merge_array(ngx_conf_t *cf, ngx_array_t **prev,
     ngx_array_t **conf, size_t size);
 static ngx_int_t require_merge_groups(ngx_conf_t *cf, ngx_array_t **prev,
+    ngx_array_t **conf);
+static ngx_int_t require_merge_jwt_verify(ngx_conf_t *cf, ngx_array_t **prev,
     ngx_array_t **conf);
 
 /* Variable group helpers */
@@ -110,6 +115,14 @@ static ngx_command_t ngx_http_auth_gate_commands[] = {
       0,
       NULL },
 
+    { ngx_string("auth_gate_jwt_verify"),
+      NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF
+      | NGX_HTTP_LMT_CONF | NGX_CONF_2MORE,
+      ngx_http_auth_gate_conf_set_jwt_verify,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      0,
+      NULL },
+
     ngx_null_command
 };
 
@@ -140,10 +153,20 @@ ngx_module_t ngx_http_auth_gate_module = {
 };
 
 
+/* Forward declarations for JWT verify subrequest handling */
+static ngx_int_t jwt_verify_start(ngx_http_request_t *r,
+    ngx_http_auth_gate_loc_conf_t *lcf);
+static ngx_int_t jwt_verify_execute(ngx_http_request_t *r,
+    ngx_http_auth_gate_loc_conf_t *lcf, ngx_http_auth_gate_ctx_t *ctx);
+static ngx_int_t jwks_post_subrequest_handler(ngx_http_request_t *r,
+    void *data, ngx_int_t rc);
+
+
 /*
  * ACCESS phase handler
  *
  * Evaluates all auth_gate directives in order:
+ * 0. JWT signature verification (async, subrequest-based)
  * 1. require_vars (boolean check mode)
  * 2. require_compare (auth_gate with operator)
  * 3. require_json (auth_gate_json)
@@ -154,19 +177,53 @@ ngx_http_auth_gate_access_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
     ngx_http_auth_gate_loc_conf_t *lcf;
+    ngx_http_auth_gate_ctx_t *ctx;
+
+    /* Skip subrequests to prevent recursion */
+    if (r != r->main) {
+        return NGX_DECLINED;
+    }
 
     lcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_gate_module);
 
     if (lcf->require_vars == NULL
         && lcf->require_compare == NULL
         && lcf->require_json == NULL
-        && lcf->require_jwt == NULL)
+        && lcf->require_jwt == NULL
+        && lcf->require_jwt_verify == NULL)
     {
         return NGX_DECLINED;
     }
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "auth_gate: access handler");
+
+    /* 0. JWT signature verification (async) */
+    if (lcf->require_jwt_verify != NULL) {
+        ctx = ngx_http_get_module_ctx(r, ngx_http_auth_gate_module);
+
+        if (ctx == NULL || !ctx->jwt_verify_started) {
+            /* First entry: start subrequests */
+            rc = jwt_verify_start(r, lcf);
+            if (rc != NGX_OK) {
+                return rc;  /* NGX_AGAIN or error */
+            }
+            /* rc == NGX_OK means 0 unique URIs (shouldn't happen) */
+        } else if (!ctx->jwt_verify_done) {
+            if (ctx->jwks_fetched < ctx->jwks_expected) {
+                /* Still waiting for subrequests */
+                return NGX_AGAIN;
+            }
+
+            /* All JWKS fetched, execute verification */
+            rc = jwt_verify_execute(r, lcf, ctx);
+            if (rc != NGX_OK) {
+                return rc;
+            }
+
+            ctx->jwt_verify_done = 1;
+        }
+    }
 
     /* 1. Boolean check mode */
     if (lcf->require_vars != NULL) {
@@ -1213,11 +1270,6 @@ ngx_http_auth_gate_conf_set_jwt(ngx_conf_t *cf,
         ngx_memzero(group, sizeof(ngx_auth_gate_var_group_t));
         group->variable_name = values[1];
 
-        ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
-                           "auth_gate_jwt: no signature verification "
-                           "is performed; use with auth_jwt or auth_oidc "
-                           "for secure JWT validation");
-
         group->variable = ngx_palloc(cf->pool,
                                      sizeof(ngx_http_complex_value_t));
         if (group->variable == NULL) {
@@ -1308,6 +1360,78 @@ require_merge_array(ngx_conf_t *cf, ngx_array_t **prev, ngx_array_t **conf,
         }
 
         ngx_memcpy(dst, (*conf)->elts, (*conf)->nelts * size);
+    }
+
+    *conf = merged;
+
+    return NGX_OK;
+}
+
+
+/*
+ * Merge jwt_verify arrays with child-overrides-parent semantics.
+ * If a child defines the same variable as a parent, the child entry
+ * replaces the parent entry (no duplicate verification for the same token).
+ */
+static ngx_int_t
+require_merge_jwt_verify(ngx_conf_t *cf, ngx_array_t **prev,
+    ngx_array_t **conf)
+{
+    ngx_array_t *merged;
+    ngx_auth_gate_jwt_verify_t *pv, *cv, *dst;
+    ngx_uint_t i, j;
+    ngx_flag_t overridden;
+
+    if (*conf == NULL) {
+        *conf = *prev;
+        return NGX_OK;
+    }
+
+    if (*prev == NULL) {
+        return NGX_OK;
+    }
+
+    merged = ngx_array_create(cf->pool,
+                              (*prev)->nelts + (*conf)->nelts,
+                              sizeof(ngx_auth_gate_jwt_verify_t));
+    if (merged == NULL) {
+        return NGX_ERROR;
+    }
+
+    /* Copy parent entries, skipping those overridden by child */
+    pv = (*prev)->elts;
+    cv = (*conf)->elts;
+
+    for (i = 0; i < (*prev)->nelts; i++) {
+        overridden = 0;
+
+        for (j = 0; j < (*conf)->nelts; j++) {
+            if (pv[i].variable_name.len == cv[j].variable_name.len
+                && ngx_strncmp(pv[i].variable_name.data,
+                               cv[j].variable_name.data,
+                               pv[i].variable_name.len) == 0)
+            {
+                overridden = 1;
+                break;
+            }
+        }
+
+        if (!overridden) {
+            dst = ngx_array_push(merged);
+            if (dst == NULL) {
+                return NGX_ERROR;
+            }
+            *dst = pv[i];
+        }
+    }
+
+    /* Append all child entries */
+    for (i = 0; i < (*conf)->nelts; i++) {
+        dst = ngx_array_push(merged);
+        if (dst == NULL) {
+            return NGX_ERROR;
+        }
+        *dst = cv[i];
     }
 
     *conf = merged;
@@ -1494,6 +1618,49 @@ ngx_http_auth_gate_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         return NGX_CONF_ERROR;
     }
 
+    if (require_merge_jwt_verify(cf, &prev->require_jwt_verify,
+                                 &conf->require_jwt_verify) != NGX_OK)
+    {
+        return NGX_CONF_ERROR;
+    }
+
+    /* Warn if auth_gate_jwt is used without auth_gate_jwt_verify */
+    if (conf->require_jwt != NULL) {
+        ngx_auth_gate_var_group_t *groups;
+        ngx_uint_t i, j, found;
+
+        groups = conf->require_jwt->elts;
+
+        for (i = 0; i < conf->require_jwt->nelts; i++) {
+            found = 0;
+
+            if (conf->require_jwt_verify != NULL) {
+                ngx_auth_gate_jwt_verify_t *verifies;
+
+                verifies = conf->require_jwt_verify->elts;
+
+                for (j = 0; j < conf->require_jwt_verify->nelts; j++) {
+                    if (groups[i].variable_name.len ==
+                        verifies[j].variable_name.len
+                        && ngx_strncmp(groups[i].variable_name.data,
+                                       verifies[j].variable_name.data,
+                                       groups[i].variable_name.len) == 0)
+                    {
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+
+            if (!found) {
+                ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                                   "auth_gate_jwt: no signature verification "
+                                   "is performed for \"%V\"",
+                                   &groups[i].variable_name);
+            }
+        }
+    }
+
     return NGX_CONF_OK;
 }
 
@@ -1523,6 +1690,512 @@ require_variable_epoch(ngx_http_request_t *r,
     v->no_cacheable = 1;
     v->not_found = 0;
     v->data = p;
+
+    return NGX_OK;
+}
+
+
+/*
+ * auth_gate_jwt_verify directive handler
+ *
+ * Syntax: auth_gate_jwt_verify $variable jwks=<uri> [error=NNN]
+ * Context: location
+ */
+static char *
+ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
+    ngx_command_t *cmd, void *conf)
+{
+    ngx_http_auth_gate_loc_conf_t *lcf = conf;
+
+    ngx_str_t *values;
+    ngx_uint_t i;
+    ngx_auth_gate_jwt_verify_t *verify;
+    ngx_http_compile_complex_value_t ccv;
+    ngx_flag_t error_set;
+
+    values = cf->args->elts;
+
+    /* First arg: $variable */
+    if (values[1].data[0] != '$') {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "auth_gate_jwt_verify: "
+                           "first argument must be a variable");
+        return NGX_CONF_ERROR;
+    }
+
+    /* Second arg: jwks=<uri> */
+    if (values[2].len < 6
+        || ngx_strncmp(values[2].data, "jwks=", 5) != 0)
+    {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "auth_gate_jwt_verify: "
+                           "second argument must be jwks=<uri>");
+        return NGX_CONF_ERROR;
+    }
+
+    {
+        ngx_str_t uri;
+
+        uri.data = values[2].data + 5;
+        uri.len = values[2].len - 5;
+
+        if (uri.len == 0 || uri.data[0] != '/') {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "auth_gate_jwt_verify: "
+                               "jwks URI must start with '/': \"%V\"", &uri);
+            return NGX_CONF_ERROR;
+        }
+
+        if (lcf->require_jwt_verify == NULL) {
+            lcf->require_jwt_verify = ngx_array_create(
+                cf->pool, 2, sizeof(ngx_auth_gate_jwt_verify_t));
+            if (lcf->require_jwt_verify == NULL) {
+                return NGX_CONF_ERROR;
+            }
+        }
+
+        /* Duplicate variable check */
+        {
+            ngx_auth_gate_jwt_verify_t *existing;
+            ngx_uint_t j;
+
+            existing = lcf->require_jwt_verify->elts;
+            for (j = 0; j < lcf->require_jwt_verify->nelts; j++) {
+                if (existing[j].variable_name.len == values[1].len
+                    && ngx_strncmp(existing[j].variable_name.data,
+                                   values[1].data, values[1].len) == 0)
+                {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                       "auth_gate_jwt_verify: "
+                                       "duplicate variable \"%V\"",
+                                       &values[1]);
+                    return NGX_CONF_ERROR;
+                }
+            }
+        }
+
+        verify = ngx_array_push(lcf->require_jwt_verify);
+        if (verify == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        ngx_memzero(verify, sizeof(ngx_auth_gate_jwt_verify_t));
+
+        /* Compile variable */
+        verify->variable = ngx_palloc(cf->pool,
+                                      sizeof(ngx_http_complex_value_t));
+        if (verify->variable == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+        ccv.cf = cf;
+        ccv.value = &values[1];
+        ccv.complex_value = verify->variable;
+
+        if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+            return NGX_CONF_ERROR;
+        }
+
+        verify->variable_name = values[1];
+        verify->jwks_uri = uri;
+    }
+
+    /* Parse optional error=NNN */
+    verify->error = NGX_HTTP_UNAUTHORIZED;
+    error_set = 0;
+
+    for (i = 3; i < cf->args->nelts; i++) {
+        ngx_int_t rc;
+
+        rc = require_parse_error(cf, &values[i], &verify->error);
+        if (rc == NGX_ERROR) {
+            return NGX_CONF_ERROR;
+        }
+
+        if (rc == NGX_OK) {
+            if (error_set) {
+                ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                                   "auth_gate_jwt_verify: duplicate "
+                                   "error= specified, overriding "
+                                   "with \"%V\"", &values[i]);
+            }
+            error_set = 1;
+            continue;
+        }
+
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "auth_gate_jwt_verify: "
+                           "unexpected argument \"%V\"", &values[i]);
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+}
+
+
+/*
+ * Start JWT verify process by issuing JWKS subrequests
+ *
+ * Creates ctx, deduplicates URIs, and issues one subrequest per unique URI.
+ * Returns NGX_AGAIN (subrequests issued) or error code.
+ */
+static ngx_int_t
+jwt_verify_start(ngx_http_request_t *r,
+    ngx_http_auth_gate_loc_conf_t *lcf)
+{
+    ngx_http_auth_gate_ctx_t *ctx;
+    ngx_auth_gate_jwt_verify_t *verifies;
+    ngx_uint_t i, j, unique_count;
+    ngx_str_t *unique_uris;
+    ngx_http_request_t *sr;
+    ngx_http_post_subrequest_t *ps;
+
+    verifies = lcf->require_jwt_verify->elts;
+
+    /* Preflight: evaluate all token variables before issuing subrequests */
+    for (i = 0; i < lcf->require_jwt_verify->nelts; i++) {
+        ngx_str_t token_val;
+
+        if (ngx_http_complex_value(r, verifies[i].variable, &token_val)
+            != NGX_OK)
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: failed to evaluate "
+                          "variable '%V'", &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+
+        if (token_val.len == 0) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: empty token for "
+                          "variable '%V' (preflight)",
+                          &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+    }
+
+    /* Count unique URIs */
+    unique_count = 0;
+
+    /* Use temporary stack/pool storage for unique URI list */
+    unique_uris = ngx_palloc(r->pool,
+                             lcf->require_jwt_verify->nelts *
+                             sizeof(ngx_str_t));
+    if (unique_uris == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    for (i = 0; i < lcf->require_jwt_verify->nelts; i++) {
+        ngx_flag_t found = 0;
+
+        for (j = 0; j < unique_count; j++) {
+            if (unique_uris[j].len == verifies[i].jwks_uri.len
+                && ngx_strncmp(unique_uris[j].data,
+                               verifies[i].jwks_uri.data,
+                               verifies[i].jwks_uri.len) == 0)
+            {
+                found = 1;
+                break;
+            }
+        }
+
+        if (!found) {
+            unique_uris[unique_count] = verifies[i].jwks_uri;
+            unique_count++;
+        }
+    }
+
+    /* Get or create context (preserve existing fields like dynamic_regex_count) */
+    ctx = ngx_http_get_module_ctx(r, ngx_http_auth_gate_module);
+
+    if (ctx == NULL) {
+        ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_auth_gate_ctx_t));
+        if (ctx == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ngx_http_set_ctx(r, ctx, ngx_http_auth_gate_module);
+    }
+
+    /*
+     * Config parse requires jwks_uri to start with '/', so unique_count
+     * should never be 0 here.  Guard defensively to prevent re-entry.
+     */
+    if (unique_count == 0) {
+        ctx->jwt_verify_started = 1;
+        ctx->jwt_verify_done = 1;
+        return NGX_OK;
+    }
+
+    ctx->jwks_results = ngx_pcalloc(r->pool,
+                                    unique_count *
+                                    sizeof(ngx_auth_gate_jwks_fetch_result_t));
+    if (ctx->jwks_results == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    ctx->jwks_expected = unique_count;
+    ctx->jwks_fetched = 0;
+    ctx->jwt_verify_started = 1;
+    ctx->jwt_verify_done = 0;
+
+    for (i = 0; i < unique_count; i++) {
+        ctx->jwks_results[i].jwks_uri = unique_uris[i];
+    }
+
+    /* Issue subrequests */
+    for (i = 0; i < unique_count; i++) {
+        ps = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
+        if (ps == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        ps->handler = jwks_post_subrequest_handler;
+        ps->data = &ctx->jwks_results[i];
+
+        if (ngx_http_subrequest(r, &unique_uris[i], NULL, &sr, ps,
+                                NGX_HTTP_SUBREQUEST_IN_MEMORY) != NGX_OK)
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: failed to create "
+                          "subrequest for '%V'", &unique_uris[i]);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "auth_gate_jwt_verify: subrequest issued for '%V'",
+                       &unique_uris[i]);
+    }
+
+    return NGX_AGAIN;
+}
+
+
+/*
+ * Post-subrequest handler: save response body and status
+ */
+static ngx_int_t
+jwks_post_subrequest_handler(ngx_http_request_t *r, void *data, ngx_int_t rc)
+{
+    ngx_auth_gate_jwks_fetch_result_t *result = data;
+    ngx_http_auth_gate_ctx_t *ctx;
+    ngx_buf_t *buf;
+    ngx_chain_t *cl;
+    size_t total_size;
+
+    ctx = ngx_http_get_module_ctx(r->parent, ngx_http_auth_gate_module);
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    result->status = r->headers_out.status;
+    result->done = 1;
+
+    /* Reject encoded responses (gzip, br, zstd, etc.) */
+    if (r->headers_out.content_encoding
+        && r->headers_out.content_encoding->value.len > 0)
+    {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "auth_gate_jwt_verify: JWKS response has "
+                      "Content-Encoding '%V' for '%V'; "
+                      "add 'proxy_set_header Accept-Encoding \"\"' "
+                      "to the JWKS subrequest location",
+                      &r->headers_out.content_encoding->value,
+                      &result->jwks_uri);
+        ctx->jwks_fetched++;
+        return NGX_OK;
+    }
+
+    /* Collect response body from upstream buffer chain */
+    if (r->upstream && r->upstream->buffer.pos) {
+        /* Single buffer from upstream */
+        buf = &r->upstream->buffer;
+        total_size = buf->last - buf->pos;
+
+        if (total_size > NGX_AUTH_GATE_MAX_JWKS_SIZE) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: JWKS response too large: "
+                          "%uz for '%V'", total_size, &result->jwks_uri);
+            ctx->jwks_fetched++;
+            return NGX_OK;
+        }
+
+        if (total_size > 0) {
+            result->body.data = ngx_pnalloc(r->parent->pool, total_size);
+            if (result->body.data == NULL) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "auth_gate_jwt_verify: failed to allocate "
+                              "JWKS body buffer for '%V'",
+                              &result->jwks_uri);
+                result->status = 0;
+                ctx->jwks_fetched++;
+                return NGX_OK;
+            }
+            ngx_memcpy(result->body.data, buf->pos, total_size);
+            result->body.len = total_size;
+        }
+    } else if (r->out) {
+        /* Buffer chain from subrequest */
+        total_size = 0;
+        for (cl = r->out; cl; cl = cl->next) {
+            if (cl->buf) {
+                total_size += cl->buf->last - cl->buf->pos;
+            }
+        }
+
+        if (total_size > NGX_AUTH_GATE_MAX_JWKS_SIZE) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: JWKS response too large: "
+                          "%uz for '%V'", total_size, &result->jwks_uri);
+            ctx->jwks_fetched++;
+            return NGX_OK;
+        }
+
+        if (total_size > 0) {
+            u_char *p;
+
+            result->body.data = ngx_pnalloc(r->parent->pool, total_size);
+            if (result->body.data == NULL) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "auth_gate_jwt_verify: failed to allocate "
+                              "JWKS body buffer for '%V'",
+                              &result->jwks_uri);
+                result->status = 0;
+                ctx->jwks_fetched++;
+                return NGX_OK;
+            }
+
+            p = result->body.data;
+            for (cl = r->out; cl; cl = cl->next) {
+                if (cl->buf) {
+                    size_t len = cl->buf->last - cl->buf->pos;
+                    p = ngx_cpymem(p, cl->buf->pos, len);
+                }
+            }
+
+            result->body.len = total_size;
+        }
+    }
+
+    ctx->jwks_fetched++;
+
+    ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "auth_gate_jwt_verify: JWKS fetched for '%V', "
+                   "status=%i", &result->jwks_uri, result->status);
+
+    return NGX_OK;
+}
+
+
+/*
+ * Execute JWT signature verification after all JWKS have been fetched
+ *
+ * For each verify directive:
+ * 1. Find the JWKS result matching the verify's URI
+ * 2. Check HTTP status (must be 200)
+ * 3. Parse JWKS
+ * 4. Evaluate variable to get JWT token
+ * 5. Verify signature
+ */
+static ngx_int_t
+jwt_verify_execute(ngx_http_request_t *r,
+    ngx_http_auth_gate_loc_conf_t *lcf, ngx_http_auth_gate_ctx_t *ctx)
+{
+    ngx_auth_gate_jwt_verify_t *verifies;
+    ngx_auth_gate_jwks_fetch_result_t *result;
+    ngx_auth_gate_jwks_keyset_t *keyset;
+    ngx_uint_t i, j;
+    ngx_str_t token_val;
+    ngx_int_t rc;
+
+    verifies = lcf->require_jwt_verify->elts;
+
+    for (i = 0; i < lcf->require_jwt_verify->nelts; i++) {
+        /* Find matching JWKS result */
+        result = NULL;
+
+        for (j = 0; j < ctx->jwks_expected; j++) {
+            if (ctx->jwks_results[j].jwks_uri.len == verifies[i].jwks_uri.len
+                && ngx_strncmp(ctx->jwks_results[j].jwks_uri.data,
+                               verifies[i].jwks_uri.data,
+                               verifies[i].jwks_uri.len) == 0)
+            {
+                result = &ctx->jwks_results[j];
+                break;
+            }
+        }
+
+        if (result == NULL || !result->done) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: JWKS result not found "
+                          "for '%V'", &verifies[i].jwks_uri);
+            return verifies[i].error;
+        }
+
+        /* Check HTTP status */
+        if (result->status != NGX_HTTP_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: JWKS fetch returned "
+                          "status %i for '%V'",
+                          result->status, &verifies[i].jwks_uri);
+            return verifies[i].error;
+        }
+
+        /* Check body */
+        if (result->body.len == 0) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: empty JWKS response "
+                          "for '%V'", &verifies[i].jwks_uri);
+            return verifies[i].error;
+        }
+
+        /* Parse JWKS (cache in result to avoid re-parsing for same URI) */
+        if (result->keyset != NULL) {
+            keyset = result->keyset;
+        } else {
+            keyset = ngx_auth_gate_jwks_parse(r->pool, &result->body,
+                                              r->connection->log);
+            if (keyset == NULL) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "auth_gate_jwt_verify: JWKS parse failed "
+                              "for '%V'", &verifies[i].jwks_uri);
+                return verifies[i].error;
+            }
+            result->keyset = keyset;
+        }
+
+        /* Evaluate variable to get JWT token */
+        if (ngx_http_complex_value(r, verifies[i].variable, &token_val)
+            != NGX_OK)
+        {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: failed to evaluate "
+                          "variable '%V'", &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+
+        if (token_val.len == 0) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: empty token for "
+                          "variable '%V'", &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+
+        /* Verify signature */
+        rc = ngx_auth_gate_jws_verify(&token_val, keyset, r->pool,
+                                      r->connection->log);
+        if (rc != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: signature verification "
+                          "failed for variable '%V'",
+                          &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "auth_gate_jwt_verify: signature verified "
+                       "for variable '%V'", &verifies[i].variable_name);
+    }
 
     return NGX_OK;
 }
