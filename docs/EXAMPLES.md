@@ -78,10 +78,42 @@ location /api/email-check {
 }
 ```
 
-### JWT Claim Validation
+### JWT Signature Verification + Claim Validation
 
 ```nginx
-# Direct validation from JWT token (assumes signature verification, see SECURITY.md)
+# Strip "Bearer " prefix from Authorization header
+map $http_authorization $bearer_token {
+    default "";
+    ~*^Bearer\s+(?<t>.+)$ $t;
+}
+
+# Verify JWT signature using JWKS, then validate claims
+location = /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+
+location /api {
+    set $token $bearer_token;
+
+    # Step 1: Verify signature
+    auth_gate_jwt_verify $token jwks=/jwks;
+
+    # Step 2: Validate claims
+    auth_gate_jwt $token .iss eq "https://accounts.example.com";
+    auth_gate_jwt $token .exp gt json=$auth_gate_epoch error=401;
+    auth_gate_jwt $token .role eq "admin" error=403;
+    proxy_pass http://backend;
+}
+```
+
+> **Note**: The `Authorization` header typically contains a `"Bearer "` prefix (e.g., `Bearer eyJ...`). Use `map` to strip the prefix before passing to `auth_gate_jwt_verify`. If the token is stored in a cookie or a custom header without a prefix, you can use it directly.
+
+### JWT Claim Validation (External Signature Verification)
+
+```nginx
+# Direct validation from JWT token (assumes signature verification by another module)
 location /external-api {
     set $token $oidc_access_token;
     auth_gate_jwt $token .iss eq "https://accounts.example.com";
@@ -94,11 +126,13 @@ location /external-api {
 
 ### JWT Required Claims Validation Template
 
-A template covering validation of standard claims defined in RFC 7519. Assumes signature verification has already been performed by authentication modules such as `auth_jwt` or `auth_oidc`.
+A template covering validation of standard claims defined in RFC 7519. Signature verification can be performed using `auth_gate_jwt_verify` or delegated to authentication modules such as `auth_jwt` or `oidc`.
 
 ```nginx
 location /api/ {
-    # Use a signature-verified token variable (see SECURITY.md)
+    # Option A: Verify signature with auth_gate_jwt_verify
+    # auth_gate_jwt_verify $token jwks=/jwks;
+    # Option B: Use a signature-verified token variable from another module
     set $token $oidc_access_token;
 
     # iss (Issuer): Validate the token issuer
@@ -150,8 +184,13 @@ location /sensitive {
 
 ```nginx
 http {
-    # Used in combination with authentication modules such as auth_oidc
+    # Used in combination with authentication modules such as oidc
     # oidc_provider my_idp { ... }
+
+    map $http_authorization $bearer_token {
+        default "";
+        ~*^Bearer\s+(?<t>.+)$ $t;
+    }
 
     map $oidc_claim_role $is_admin {
         "admin"  1;
@@ -188,9 +227,15 @@ http {
             proxy_pass http://backend;
         }
 
-        # 5. Direct validation from JWT token (assumes signature verification)
+        # 5. JWT signature verification + claim validation
+        location = /jwks {
+            internal;
+            proxy_set_header Accept-Encoding "";
+            proxy_pass https://idp.example.com/.well-known/jwks.json;
+        }
         location /external-api {
-            set $token $oidc_access_token;
+            set $token $bearer_token;
+            auth_gate_jwt_verify $token jwks=/jwks;
             auth_gate_jwt $token .iss eq "https://accounts.example.com";
             auth_gate_jwt $token .exp gt json=$auth_gate_epoch error=401;
             auth_gate_jwt $token .["https://example.com/permissions"]

@@ -16,6 +16,7 @@ This module provides the following directives. There are 8 operators: `eq`, `gt`
 | | `$var [...] [error=...]` | Variable truthiness check |
 | [`auth_gate_json`](#auth_gate_json-json-field-validation) | `$var <field> <op> <expected> [error=...]` | JSON variable field validation |
 | [`auth_gate_jwt`](#auth_gate_jwt-jwt-claim-validation) | `$var <claim> <op> <expected> [error=...]` | JWT claim validation (no signature verification) |
+| [`auth_gate_jwt_verify`](#auth_gate_jwt_verify-jwt-signature-verification) | `$var jwks=<uri> [error=...]` | JWT signature verification using JWKS |
 
 ### auth_gate (Comparison / Truthiness Check)
 
@@ -136,7 +137,7 @@ Context: http, server, location, limit_except
 
 Decodes the variable value as a JWT token (base64url decode) and validates claims in the payload.
 
-**No signature verification is performed**. JWT authentication (signature verification) is the responsibility of authentication modules such as `auth_jwt` and `auth_oidc`. This directive handles only authorization (validation of claim values).
+**No signature verification is performed**. JWT authentication (signature verification) is the responsibility of `auth_gate_jwt_verify`, `auth_jwt`, `oidc`, or similar modules. This directive handles only authorization (validation of claim values).
 
 JWT decode process:
 1. Split the token by `.`
@@ -158,7 +159,83 @@ auth_gate_jwt $token .resource_access.my-app.roles any json=["admin"];
 auth_gate_jwt $token .["https://example.com/roles"] any json=["admin"];
 ```
 
-**Security note**: This directive does not perform JWT signature verification. If you use a JWT token obtained from HTTP headers or cookies directly as a validation source, there is a risk of payload tampering by clients. Always perform signature verification using an upstream authentication module (`auth_jwt`, `auth_oidc`, etc.) before use. See [SECURITY.md](SECURITY.md) for details.
+**Security note**: This directive does not perform JWT signature verification. If you use a JWT token obtained from HTTP headers or cookies directly as a validation source, there is a risk of payload tampering by clients. Either use `auth_gate_jwt_verify` to verify signatures, or perform signature verification using an upstream authentication module (`auth_jwt`, `oidc`, etc.) before use. See [SECURITY.md](SECURITY.md) for details.
+
+### auth_gate_jwt_verify (JWT Signature Verification)
+
+```
+Syntax:  auth_gate_jwt_verify $variable jwks=<uri> [error=4xx|5xx];
+Default: —
+Context: http, server, location, limit_except
+```
+
+Verifies the JWT signature of the token stored in `$variable` using public keys fetched from a JWKS (JSON Web Key Set) endpoint.
+
+- `$variable`: nginx variable containing the raw JWT token (without `Bearer ` prefix). If using the `Authorization` header, strip the prefix with `map` first (see [EXAMPLES.md](EXAMPLES.md))
+- `jwks=<uri>`: Internal location URI that returns JWKS JSON. Must start with `/`
+- `error`: HTTP status code to return on verification failure (default: `401`)
+
+The JWKS is fetched via an nginx subrequest to the specified URI. The JWKS location **must** use the `internal` directive to prevent direct external access. Without `internal`, clients could probe the JWKS endpoint directly, potentially leaking information about your key infrastructure.
+
+**Supported algorithms**:
+
+| Algorithm Family | Algorithms | Key Type |
+|-----------------|------------|----------|
+| RSA PKCS#1 v1.5 | RS256, RS384, RS512 | RSA |
+| RSA-PSS | PS256, PS384, PS512 | RSA |
+| ECDSA | ES256, ES384, ES512, ES256K | EC (P-256, P-384, P-521, secp256k1) |
+| EdDSA | EdDSA | OKP (Ed25519, Ed448) |
+
+The `none` algorithm and HMAC algorithms (`HS256`, `HS384`, `HS512`) are explicitly rejected.
+
+**Key matching**: Keys are matched by `kid` (Key ID), `alg` (algorithm), and `kty` (key type). When the JWT header contains a `kid`, only keys with a matching `kid` are tried. When the JWT header does not contain a `kid`, all keys with compatible `alg` and `kty` are tried. If no compatible key is found, verification fails.
+
+```nginx
+# JWKS endpoint (internal location proxying to IdP)
+location = /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+
+# Verify JWT signature then check claims
+# See the map definition in EXAMPLES.md for stripping the Bearer prefix
+location /api {
+    auth_gate_jwt_verify $bearer_token jwks=/jwks;
+    auth_gate_jwt $bearer_token .role eq "admin" error=403;
+    proxy_pass http://backend;
+}
+
+# Multiple tokens with different JWKS endpoints
+location /federated {
+    auth_gate_jwt_verify $cookie_id_token jwks=/jwks_idp_a;
+    auth_gate_jwt_verify $http_x_service_token jwks=/jwks_idp_b;
+    proxy_pass http://backend;
+}
+```
+
+**Subrequest deduplication**: When multiple `auth_gate_jwt_verify` directives reference the same `jwks=` URI, only one subrequest is issued and the response is shared.
+
+**JWKS caching**: Without caching, a subrequest to the JWKS endpoint is issued for every request. In production, **always** use `proxy_cache` to cache the JWKS response and avoid unnecessary upstream requests. A typical JWKS cache lifetime of 1 hour balances key rotation responsiveness with performance.
+
+```nginx
+proxy_cache_path /var/cache/nginx/jwks levels=1 keys_zone=jwks_cache:1m;
+
+location = /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_cache jwks_cache;
+    proxy_cache_valid 200 1h;
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+```
+
+**JWKS limits**:
+
+| Limit | Value |
+|-------|-------|
+| JWKS response size | 256 KiB |
+| Maximum keys in JWKS | 64 |
 
 ## Operators
 
@@ -293,12 +370,13 @@ When an nginx variable is undefined or empty, each directive handles it as follo
 
 Directives are evaluated in the following order. When any validation fails, short-circuit evaluation (skipping remaining validations) returns the error code of the failed directive:
 
-1. `auth_gate` (truthiness check mode)
-2. `auth_gate` (comparison mode)
-3. `auth_gate_json`
-4. `auth_gate_jwt`
+1. `auth_gate_jwt_verify` (JWT signature verification — async via subrequest)
+2. `auth_gate` (truthiness check mode)
+3. `auth_gate` (comparison mode)
+4. `auth_gate_json`
+5. `auth_gate_jwt`
 
-This order is fixed and does not depend on the order of directives in the configuration file.
+This order is fixed and does not depend on the order of directives in the configuration file. `auth_gate_jwt_verify` runs first because it requires asynchronous JWKS fetching. This ensures that signature verification is complete before any claim validation.
 
 ### Variable Grouping
 

@@ -96,6 +96,37 @@ grep 'auth_gate' /var/log/nginx/error.log
 
 See the "DoS Defense Mechanisms" section in [SECURITY.md](SECURITY.md) for the complete list of limits.
 
+### Issue 6: JWKS Parse Error (auth_gate_jwt_verify)
+
+**Symptom**: JWKS parsing fails with `auth_gate_jwt_verify`, returning an error code (default 401)
+
+**Error log**:
+```
+auth_gate_jwt_verify: JWKS response has Content-Encoding 'gzip' for '/jwks';
+add 'proxy_set_header Accept-Encoding ""' to the JWKS subrequest location
+```
+or:
+```
+auth_gate_jwks: failed to parse JWKS JSON
+auth_gate_jwt_verify: JWKS parse failed for '/jwks'
+```
+
+**Cause**: The JWKS endpoint returns a compressed response (gzip / br / zstd, etc.). The body fetched via `NGX_HTTP_SUBREQUEST_IN_MEMORY` remains compressed binary and cannot be parsed as JSON
+
+**Solution**:
+
+Add `proxy_set_header Accept-Encoding ""` to the JWKS subrequest location to request an uncompressed response from the upstream:
+
+```nginx
+location /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+```
+
+> **Note**: Many IdP JWKS endpoints, including Google (`https://www.googleapis.com/oauth2/v3/certs`), return gzip-compressed responses by default.
+
 ## Log Inspection
 
 ### Enabling Debug Logs

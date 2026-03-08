@@ -8,6 +8,7 @@ Instructions for installing the nginx auth_gate module.
 
 - **nginx**: 1.18.0 or later
 - **jansson**: 2.14 or later (for JSON processing; uses APIs such as `json_string_length()`)
+- **OpenSSL**: 3.0 or later (for JWT signature verification with `auth_gate_jwt_verify`)
 
 ### Optional Libraries
 
@@ -21,7 +22,8 @@ apt-get install -y \
     build-essential \
     libpcre3-dev \
     zlib1g-dev \
-    libjansson-dev
+    libjansson-dev \
+    libssl-dev
 # libpcre3-dev is only needed when using the match operator (optional)
 ```
 
@@ -32,7 +34,8 @@ dnf install -y \
     make \
     pcre-devel \
     zlib-devel \
-    jansson-devel
+    jansson-devel \
+    openssl-devel
 # pcre-devel is only needed when using the match operator (optional)
 ```
 
@@ -44,7 +47,8 @@ apk add \
     musl-dev \
     pcre-dev \
     zlib-dev \
-    jansson-dev
+    jansson-dev \
+    openssl-dev
 # pcre-dev is only needed when using the match operator (optional)
 ```
 

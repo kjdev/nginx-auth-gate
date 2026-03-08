@@ -12,7 +12,7 @@ auth_gate $oidc_claim_sub error=401;
 auth_gate $is_admin $has_permission error=403;
 ```
 
-The auth_gate module additionally provides operator-based comparison mode (`auth_gate $var <op> <expected>`), JSON field validation (`auth_gate_json`), and JWT claim validation (`auth_gate_jwt`).
+The auth_gate module additionally provides operator-based comparison mode (`auth_gate $var <op> <expected>`), JSON field validation (`auth_gate_json`), JWT claim validation (`auth_gate_jwt`), and JWT signature verification (`auth_gate_jwt_verify`).
 
 ## Related Documentation
 

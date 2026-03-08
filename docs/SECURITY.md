@@ -4,33 +4,49 @@ Security guidelines for safely using the nginx auth_gate module.
 
 ## JWT Signature Verification
 
-The `auth_gate_jwt` directive **does not perform JWT signature verification**. It only base64url decodes the JWT payload and validates claim values.
+This module provides the `auth_gate_jwt_verify` directive for JWT signature verification using JWKS. When using `auth_gate_jwt` for claim validation, always pair it with `auth_gate_jwt_verify` or an external authentication module to ensure tokens are signature-verified.
 
-JWT authentication (signature verification) is the responsibility of authentication modules such as `auth_jwt` and `auth_oidc`. `auth_gate_jwt` handles only authorization (validation of claim values).
+The `auth_gate_jwt` directive **does not perform JWT signature verification** on its own. It only base64url decodes the JWT payload and validates claim values.
 
 **Tampering risk**: When using HTTP header or cookie values directly as JWT without signature verification, clients can freely tamper with the payload. For example:
 
-- If you pass `$http_authorization` or `$cookie_token` directly to `auth_gate_jwt`, an attacker can send a JWT with arbitrary claim values
+- If you pass `$http_authorization` or `$cookie_token` directly to `auth_gate_jwt` without `auth_gate_jwt_verify`, an attacker can send a JWT with arbitrary claim values
 - Simply base64url encoding a payload like `{"role": "admin"}` and setting it in a header could bypass authorization checks
 
-**Recommended configuration**: Always perform signature verification with an upstream authentication module and validate claims against **signature-verified tokens**.
+**Recommended configuration**: Use `auth_gate_jwt_verify` to verify signatures, then validate claims with `auth_gate_jwt`.
 
 ```nginx
-server {
-    # Authentication: perform JWT signature verification with auth_oidc or auth_jwt
-    # auth_oidc my_idp;
+http {
+    # Strip Bearer prefix from Authorization header
+    map $http_authorization $bearer_token {
+        default "";
+        ~*^Bearer\s+(?<t>.+)$ $t;
+    }
 
-    location /api {
-        # Authorization: validate claim values of signature-verified tokens
-        auth_gate_jwt $token .role eq "admin" error=403;
-        proxy_pass http://backend;
+    server {
+        location = /jwks {
+            internal;
+            proxy_set_header Accept-Encoding "";
+            proxy_pass https://idp.example.com/.well-known/jwks.json;
+        }
+
+        location /api {
+            # Step 1: Verify JWT signature
+            auth_gate_jwt_verify $bearer_token jwks=/jwks;
+
+            # Step 2: Validate claim values of signature-verified tokens
+            auth_gate_jwt $bearer_token .role eq "admin" error=403;
+            proxy_pass http://backend;
+        }
     }
 }
 ```
 
+Alternatively, you can delegate signature verification to an external authentication module (`auth_jwt`, `oidc`, etc.) and validate claims against their output variables.
+
 ### Dangerous Variable Patterns
 
-The following variables, when passed directly to `auth_gate_jwt`, allow clients to bypass claim validation using tampered JWTs:
+The following variables, when passed directly to `auth_gate_jwt` **without** `auth_gate_jwt_verify`, allow clients to bypass claim validation using tampered JWTs:
 
 | Variable | Risk |
 |----------|------|
@@ -43,9 +59,10 @@ The following variables, when passed directly to `auth_gate_jwt`, allow clients 
 
 | Variable | Reason |
 |----------|--------|
-| `$oidc_id_token` / `$oidc_access_token` | Signature verified by auth_oidc module |
-| `$jwt_payload` | Signature verified by auth_jwt module |
-| Variables set by upstream modules | Values verified upstream |
+| `$oidc_id_token` / `$oidc_access_token` | Raw JWTs whose signatures were already verified by the oidc module |
+| Variables set by upstream modules | Safe for `auth_gate_jwt` only when they still contain the raw JWT after upstream verification |
+
+For already-decoded payload variables such as `$jwt_payload` from `auth_jwt`, use `auth_gate_json` instead of `auth_gate_jwt`.
 
 **Dangerous configuration example** (using external input directly without signature verification):
 ```nginx
@@ -55,7 +72,66 @@ location /api {
     auth_gate_jwt $token .role eq "admin" error=403;  # Can be bypassed!
     proxy_pass http://backend;
 }
+
+# OK: Verify signature first, then validate claims
+location /api {
+    set $token $cookie_access_token;
+    auth_gate_jwt_verify $token jwks=/jwks;           # Signature verified
+    auth_gate_jwt $token .role eq "admin" error=403;  # Safe
+    proxy_pass http://backend;
+}
 ```
+
+### auth_gate_jwt_verify Security Notes
+
+- The `none` algorithm is explicitly rejected to prevent algorithm confusion attacks
+- HMAC algorithms (`HS256`, `HS384`, `HS512`) are rejected because symmetric key verification is not appropriate for JWKS-based public key verification
+- Key selection uses `kid` when the JWT header provides one, and always filters candidate JWKS keys by `alg` compatibility and key type (`kty`) to prevent algorithm confusion attacks
+- JWKS response size is limited to 256 KiB and key count to 64 to prevent resource exhaustion
+- Key validation: RSA minimum key length 2048 bit, EC coordinate length validation (P-256/secp256k1: 32, P-384: 48, P-521: 66), EdDSA public key length validation (Ed25519: 32, Ed448: 57)
+
+Supported algorithms (whitelist approach):
+
+| Family | Algorithms |
+|--------|-----------|
+| RSA PKCS#1 v1.5 | `RS256`, `RS384`, `RS512` |
+| RSA PSS | `PS256`, `PS384`, `PS512` |
+| ECDSA | `ES256`, `ES384`, `ES512`, `ES256K` |
+| EdDSA | `EdDSA` (Ed25519, Ed448) |
+
+### JWKS Location Best Practices
+
+**Always use `internal`**: The JWKS location **must** include the `internal` directive. Without it, external clients can directly access the JWKS endpoint, which may expose information about your key infrastructure or allow abuse of the upstream IdP connection.
+
+```nginx
+# CORRECT: internal prevents direct client access
+location = /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+
+# WRONG: accessible to external clients
+location = /jwks {
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+```
+
+**Always use `proxy_cache`**: Without caching, every incoming request triggers a subrequest to the JWKS endpoint. This creates unnecessary load on the upstream IdP and adds latency to every request. Use `proxy_cache` to cache the JWKS response.
+
+```nginx
+proxy_cache_path /var/cache/nginx/jwks levels=1 keys_zone=jwks_cache:1m;
+
+location = /jwks {
+    internal;
+    proxy_set_header Accept-Encoding "";
+    proxy_cache jwks_cache;
+    proxy_cache_valid 200 1h;
+    proxy_pass https://idp.example.com/.well-known/jwks.json;
+}
+```
+
+A cache lifetime of 1 hour is recommended as a balance between key rotation responsiveness and performance. Adjust based on your IdP's key rotation frequency.
 
 ## Regular Expression Denial of Service (ReDoS) Protection
 
