@@ -257,7 +257,8 @@ ngx_http_auth_gate_access_handler(ngx_http_request_t *r)
         }
     }
 
-    return NGX_OK;
+    /* PRECONTENT uses generic phase checker: NGX_DECLINED = next handler */
+    return NGX_DECLINED;
 }
 
 
@@ -2201,7 +2202,7 @@ jwt_verify_execute(ngx_http_request_t *r,
 }
 
 
-/* Module initialization: register ACCESS phase handler and variables */
+/* Module initialization: register PRECONTENT phase handler and variables */
 static ngx_int_t
 ngx_http_auth_gate_init(ngx_conf_t *cf)
 {
@@ -2211,7 +2212,7 @@ ngx_http_auth_gate_init(ngx_conf_t *cf)
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
-    h = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+    h = ngx_array_push(&cmcf->phases[NGX_HTTP_PRECONTENT_PHASE].handlers);
     if (h == NULL) {
         return NGX_ERROR;
     }
