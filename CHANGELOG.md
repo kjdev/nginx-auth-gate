@@ -1,5 +1,19 @@
 # Changelog
 
+## [1a0a6fe] - 2026-03-11
+
+### Changed
+
+- Renamed internal handler function from `ngx_http_auth_gate_access_handler` to `ngx_http_auth_gate_handler` for phase-neutral naming
+
+## [86dbd31] - 2026-03-11
+
+### Changed
+
+- **BREAKING:** Moved handler from ACCESS phase to PRECONTENT phase to enable coexistence with oidc module in the same location block
+  - Phase ordering (ACCESS → PRECONTENT) is guaranteed by nginx architecture, eliminating dependency on `load_module` order
+  - `satisfy` directive no longer applies to auth_gate (PRECONTENT phase is outside ACCESS phase checker)
+
 ## [a2306ae] - 2026-03-10
 
 ### Added
@@ -33,6 +47,8 @@
 - `$auth_require_epoch` variable for JWT exp/nbf claim comparison
 - jansson library dependency for JSON parsing
 
+[1a0a6fe]: https://github.com/kjdev/nginx-auth-gate/commit/1a0a6fe
+[86dbd31]: https://github.com/kjdev/nginx-auth-gate/commit/86dbd31
 [a2306ae]: https://github.com/kjdev/nginx-auth-gate/commit/a2306ae
 [b32c3a5]: https://github.com/kjdev/nginx-auth-gate/commit/b32c3a5
 [4c1b162]: https://github.com/kjdev/nginx-auth-gate/commit/4c1b162
