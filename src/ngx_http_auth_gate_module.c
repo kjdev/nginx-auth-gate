@@ -44,7 +44,7 @@ static ngx_int_t require_variable_epoch(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 /* Access handler */
-static ngx_int_t ngx_http_auth_gate_access_handler(ngx_http_request_t *r);
+static ngx_int_t ngx_http_auth_gate_handler(ngx_http_request_t *r);
 
 /* Internal validation functions */
 static ngx_int_t require_validate_vars(ngx_http_request_t *r,
@@ -173,7 +173,7 @@ static ngx_int_t jwks_post_subrequest_handler(ngx_http_request_t *r,
  * 4. require_jwt (auth_gate_jwt)
  */
 static ngx_int_t
-ngx_http_auth_gate_access_handler(ngx_http_request_t *r)
+ngx_http_auth_gate_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
     ngx_http_auth_gate_loc_conf_t *lcf;
@@ -196,7 +196,7 @@ ngx_http_auth_gate_access_handler(ngx_http_request_t *r)
     }
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                   "auth_gate: access handler");
+                   "auth_gate: handler");
 
     /* 0. JWT signature verification (async) */
     if (lcf->require_jwt_verify != NULL) {
@@ -2217,7 +2217,7 @@ ngx_http_auth_gate_init(ngx_conf_t *cf)
         return NGX_ERROR;
     }
 
-    *h = ngx_http_auth_gate_access_handler;
+    *h = ngx_http_auth_gate_handler;
 
     /* Register variables */
     for (v = require_vars; v->name.len; v++) {
