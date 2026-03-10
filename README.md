@@ -4,7 +4,7 @@
 
 ### About This Module
 
-The nginx auth_gate module is a dynamic module that adds variable value comparison validation, JSON field validation, JWT claim validation, and JWT signature verification capabilities to nginx. It operates in nginx's ACCESS phase, validating authorization conditions before requests reach the backend.
+The nginx auth_gate module is a dynamic module that adds variable value comparison validation, JSON field validation, JWT claim validation, and JWT signature verification capabilities to nginx. It operates in nginx's PRECONTENT phase, validating authorization conditions before requests reach the backend.
 
 By combining it with other authentication modules (`oidc`, `auth_jwt`, etc.), you can achieve flexible access control.
 
@@ -105,7 +105,7 @@ This module provides the following nginx variables. See [DIRECTIVES.md](docs/DIR
 
 ### Processing Flow Overview
 
-The auth_gate module operates in nginx's ACCESS phase. For each request, validations are executed in the following order. When any validation fails, short-circuit evaluation (skipping remaining checks) returns the corresponding `error` code (default: `401` for `auth_gate_jwt_verify`, `403` for others). The request proceeds to the next phase only if all validations pass.
+The auth_gate module operates in nginx's PRECONTENT phase. For each request, validations are executed in the following order. When any validation fails, short-circuit evaluation (skipping remaining checks) returns the corresponding `error` code (default: `401` for `auth_gate_jwt_verify`, `403` for others). The request proceeds to the next phase only if all validations pass.
 
 ![Processing Flow](docs/images/processing-flow.png)
 
