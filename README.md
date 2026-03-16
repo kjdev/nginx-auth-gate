@@ -18,6 +18,8 @@ By combining it with other authentication modules (`oidc`, `auth_jwt`, etc.), yo
 
 **Scope**: This module handles **authorization**. Authentication (user identity verification) is typically delegated to separate modules such as `auth_jwt` and `oidc`, but this module also provides built-in JWT signature verification via the `auth_gate_jwt_verify` directive.
 
+**License**: MIT License
+
 ### Security
 
 This module provides JWT signature verification via `auth_gate_jwt_verify` and handles authorization with various validation directives. See [SECURITY.md](docs/SECURITY.md) for security considerations.
@@ -25,8 +27,6 @@ This module provides JWT signature verification via `auth_gate_jwt_verify` and h
 ### Relationship to the Commercial auth_require
 
 The `auth_gate` directive also provides truthiness check functionality equivalent to the [`auth_require` directive from the nginx commercial subscription](https://nginx.org/en/docs/http/ngx_http_auth_require_module.html). See [COMMERCIAL_COMPATIBILITY.md](docs/COMMERCIAL_COMPATIBILITY.md) for details.
-
-**License**: MIT License
 
 ## Quick Start
 
