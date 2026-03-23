@@ -14,21 +14,7 @@ ngx_module_srcs="\
   $ngx_addon_dir/src/ngx_http_auth_gate_module.c \
 "
 
-# Explicitly link the PCRE library for musl (Alpine Linux) compatibility.
-# musl's dlopen does not expose symbols from the main binary to dynamic modules.
-# Redundant but harmless on glibc.
-# Use nginx's $PCRE_LIBRARY to match the backend nginx chose during configure.
-if [ "$PCRE_LIBRARY" = 'PCRE2' ]; then
-    _pcre_lib='-lpcre2-8'
-elif [ "$PCRE_LIBRARY" = 'PCRE' ]; then
-    _pcre_lib='-lpcre'
-else
-    _pcre_lib=
-fi
-
 ngx_module_libs="\
-  PCRE \
-  $_pcre_lib \
   -ljansson \
   -lcrypto \
 "
