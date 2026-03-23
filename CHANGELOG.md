@@ -1,5 +1,13 @@
 # Changelog
 
+## [fb79555](../../commit/fb79555) - 2026-03-23
+
+### Changed
+
+- Removed explicit PCRE library linking from module build configuration
+  - Alpine's official nginx package dynamically links libpcre2-8.so, making explicit linking unnecessary
+  - PCRE symbols are resolved from the shared library already loaded by the nginx process
+
 ## [f76f2c9](../../commit/f76f2c9) - 2026-03-23
 
 
