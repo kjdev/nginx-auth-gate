@@ -1,18 +1,19 @@
 # Changelog
 
-## [f76f2c9] - 2026-03-23
+## [f76f2c9](../../commit/f76f2c9) - 2026-03-23
+
 
 ### Fixed
 
 - Fixed module failing to load on Alpine Linux (musl) with `pcre_exec: symbol not found` by explicitly linking the PCRE library in the module build configuration
 
-## [1a0a6fe] - 2026-03-11
+## [1a0a6fe](../../commit/1a0a6fe) - 2026-03-11
 
 ### Changed
 
 - Renamed internal handler function from `ngx_http_auth_gate_access_handler` to `ngx_http_auth_gate_handler` for phase-neutral naming
 
-## [86dbd31] - 2026-03-11
+## [86dbd31](../../commit/86dbd31) - 2026-03-11
 
 ### Changed
 
@@ -20,7 +21,7 @@
   - Phase execution order (ACCESS → PRECONTENT) is guaranteed by nginx architecture, eliminating dependency on `load_module` directive order
   - `satisfy` directive no longer applies to auth_gate (PRECONTENT phase is outside ACCESS phase checker)
 
-## [a2306ae] - 2026-03-10
+## [a2306ae](../../commit/a2306ae) - 2026-03-10
 
 ### Added
 
@@ -31,7 +32,7 @@
 
 - **BREAKING:** All auth_gate directives are now skipped in subrequests (previously evaluated in all requests including subrequests)
 
-## [b32c3a5] - 2026-03-06
+## [b32c3a5](../../commit/b32c3a5) - 2026-03-06
 
 ### Changed
 
@@ -41,7 +42,7 @@
   - `auth_require_jwt` → `auth_gate_jwt`
   - `$auth_require_epoch` → `$auth_gate_epoch`
 
-## [4c1b162] - 2026-02-26
+## [4c1b162](../../commit/4c1b162) - 2026-02-26
 
 ### Added
 
@@ -53,9 +54,3 @@
 - Added `$auth_require_epoch` variable for JWT exp/nbf claim comparison
 - Added jansson library dependency for JSON parsing
 
-[f76f2c9]: https://github.com/kjdev/nginx-auth-gate/commit/f76f2c9
-[1a0a6fe]: https://github.com/kjdev/nginx-auth-gate/commit/1a0a6fe
-[86dbd31]: https://github.com/kjdev/nginx-auth-gate/commit/86dbd31
-[a2306ae]: https://github.com/kjdev/nginx-auth-gate/commit/a2306ae
-[b32c3a5]: https://github.com/kjdev/nginx-auth-gate/commit/b32c3a5
-[4c1b162]: https://github.com/kjdev/nginx-auth-gate/commit/4c1b162
