@@ -1,5 +1,11 @@
 # Changelog
 
+## [f76f2c9] - 2026-03-23
+
+### Fixed
+
+- Fixed module failing to load on Alpine Linux (musl) with `pcre_exec: symbol not found` by explicitly linking the PCRE library in the module build configuration
+
 ## [1a0a6fe] - 2026-03-11
 
 ### Changed
@@ -47,6 +53,7 @@
 - Added `$auth_require_epoch` variable for JWT exp/nbf claim comparison
 - Added jansson library dependency for JSON parsing
 
+[f76f2c9]: https://github.com/kjdev/nginx-auth-gate/commit/f76f2c9
 [1a0a6fe]: https://github.com/kjdev/nginx-auth-gate/commit/1a0a6fe
 [86dbd31]: https://github.com/kjdev/nginx-auth-gate/commit/86dbd31
 [a2306ae]: https://github.com/kjdev/nginx-auth-gate/commit/a2306ae
