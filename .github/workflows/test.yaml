@@ -62,7 +62,7 @@ jobs:
             musl-dev \
             nginx \
             openssl-dev \
-            pcre-dev \
+            pcre2-dev \
             perl-dev \
             perl-utils \
             zlib-dev
