@@ -6,19 +6,18 @@
 
 The nginx auth_gate module is a dynamic module that adds variable value comparison validation, JSON field validation, JWT claim validation, and JWT signature verification capabilities to nginx. It operates in nginx's PRECONTENT phase, validating authorization conditions before requests reach the backend.
 
-By combining it with other authentication modules (`oidc`, `auth_jwt`, etc.), you can achieve flexible access control.
-
-**Example use cases**:
-- Compare variable values using operators to verify specific conditions
-- Validate specific roles or permissions from JSON such as OIDC claims
-- Directly validate scopes or expiration times from JWT token payloads
-- Verify JWT signatures using JWKS (JSON Web Key Sets)
-- Combine the above conditions with AND for complex access control
-- Variable truthiness checks (not empty, not `"0"`)
-
-**Scope**: This module handles **authorization**. Authentication (user identity verification) is typically delegated to separate modules such as `auth_jwt` and `oidc`, but this module also provides built-in JWT signature verification via the `auth_gate_jwt_verify` directive.
-
 **License**: MIT License
+
+### Key Features
+
+- **Operator-Based Comparison**: 8 operators (`eq`, `gt`, `ge`, `lt`, `le`, `in`, `any`, `match`) with negation via `!` prefix
+- **JSON Field Validation**: Parse variable values as JSON and validate specific fields using JQ-like field paths
+- **JWT Claim Validation**: Decode JWT tokens and validate payload claims with operators
+- **JWT Signature Verification**: Verify JWT signatures using JWKS fetched via subrequests (RSA, ECDSA, EdDSA)
+- **Variable Truthiness Check**: Check if variables are truthy (compatible with the commercial `auth_require` directive)
+- **Custom Error Codes**: Specify HTTP error codes (400-599) per directive with the `error=` parameter
+- **Flexible Field Paths**: JQ-like syntax supporting nested keys, array indices, and bracket notation
+- **ReDoS Protection**: PCRE match/depth limits and dynamic pattern compilation limits
 
 ### Security
 
