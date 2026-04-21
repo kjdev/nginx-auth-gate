@@ -299,13 +299,13 @@ ngx_auth_gate_field_parse(ngx_pool_t *pool, ngx_str_t *raw,
 }
 
 
-ngx_auth_gate_json_t *
-ngx_auth_gate_field_get(ngx_auth_gate_json_t *root,
+nxe_json_t *
+ngx_auth_gate_field_get(nxe_json_t *root,
     ngx_auth_gate_field_path_t *path)
 {
     ngx_uint_t i;
     ngx_auth_gate_field_segment_t *segments;
-    ngx_auth_gate_json_t *current;
+    nxe_json_t *current;
 
     if (root == NULL || path == NULL || path->segments == NULL) {
         return NULL;
@@ -324,13 +324,13 @@ ngx_auth_gate_field_get(ngx_auth_gate_json_t *root,
         switch (segments[i].type) {
 
         case NGX_AUTH_GATE_FIELD_KEY:
-            current = ngx_auth_gate_json_object_get(current,
-                                                    &segments[i].key);
+            current = nxe_json_object_get_ns(current,
+                                             &segments[i].key);
             break;
 
         case NGX_AUTH_GATE_FIELD_INDEX:
-            current = ngx_auth_gate_json_array_get(current,
-                                                   segments[i].index);
+            current = nxe_json_array_get(current,
+                                         segments[i].index);
             break;
 
         default:

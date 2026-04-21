@@ -21,7 +21,7 @@
 #include <openssl/rsa.h>
 
 #include "ngx_auth_gate_jws.h"
-#include "ngx_auth_gate_json.h"
+#include "nxe_json.h"
 #include "ngx_auth_gate_jwt.h"
 
 
@@ -395,7 +395,7 @@ ngx_auth_gate_jws_verify(ngx_str_t *token,
 {
     u_char *dot1, *dot2;
     ngx_str_t header_b64, sig_b64, sig_decoded;
-    ngx_auth_gate_json_t *header_json;
+    nxe_json_t *header_json;
     ngx_str_t alg, kid;
     size_t hp_len;
     ngx_auth_gate_jwks_key_t *keys;
@@ -454,17 +454,17 @@ ngx_auth_gate_jws_verify(ngx_str_t *token,
     /* Extract alg */
     {
         ngx_str_t alg_key, alg_tmp;
-        ngx_auth_gate_json_t *alg_val;
+        nxe_json_t *alg_val;
 
         ngx_str_set(&alg_key, "alg");
-        alg_val = ngx_auth_gate_json_object_get(header_json, &alg_key);
+        alg_val = nxe_json_object_get_ns(header_json, &alg_key);
 
         if (alg_val == NULL
-            || ngx_auth_gate_json_string(alg_val, &alg_tmp) != NGX_OK)
+            || nxe_json_string(alg_val, &alg_tmp) != NGX_OK)
         {
             ngx_log_error(NGX_LOG_ERR, log, 0,
                           "auth_gate_jws: missing 'alg' in JWT header");
-            ngx_auth_gate_json_free(header_json);
+            nxe_json_free(header_json);
             return NGX_ERROR;
         }
 
@@ -472,14 +472,14 @@ ngx_auth_gate_jws_verify(ngx_str_t *token,
         alg.data = ngx_pstrdup(pool, &alg_tmp);
         alg.len = alg_tmp.len;
         if (alg.data == NULL) {
-            ngx_auth_gate_json_free(header_json);
+            nxe_json_free(header_json);
             return NGX_ERROR;
         }
     }
 
     /* Validate algorithm */
     if (jws_validate_algorithm(&alg, log) != NGX_OK) {
-        ngx_auth_gate_json_free(header_json);
+        nxe_json_free(header_json);
         return NGX_ERROR;
     }
 
@@ -487,13 +487,13 @@ ngx_auth_gate_jws_verify(ngx_str_t *token,
     ngx_str_null(&kid);
     {
         ngx_str_t kid_key, kid_tmp;
-        ngx_auth_gate_json_t *kid_val;
+        nxe_json_t *kid_val;
 
         ngx_str_set(&kid_key, "kid");
-        kid_val = ngx_auth_gate_json_object_get(header_json, &kid_key);
+        kid_val = nxe_json_object_get_ns(header_json, &kid_key);
 
         if (kid_val != NULL
-            && ngx_auth_gate_json_string(kid_val, &kid_tmp) == NGX_OK)
+            && nxe_json_string(kid_val, &kid_tmp) == NGX_OK)
         {
             kid.data = ngx_pstrdup(pool, &kid_tmp);
             if (kid.data != NULL) {
@@ -502,7 +502,7 @@ ngx_auth_gate_jws_verify(ngx_str_t *token,
         }
     }
 
-    ngx_auth_gate_json_free(header_json);
+    nxe_json_free(header_json);
 
     ngx_log_debug2(NGX_LOG_DEBUG_HTTP, log, 0,
                    "auth_gate_jws: JWT header alg='%V', kid='%V'",

@@ -26,7 +26,7 @@
 #include <openssl/err.h>
 
 #include "ngx_auth_gate_jwks.h"
-#include "ngx_auth_gate_json.h"
+#include "nxe_json.h"
 
 
 static void
@@ -69,26 +69,19 @@ jwks_keyset_cleanup(void *data)
 
 /*
  * Helper: get a string field from a JSON object by C string key
- *
- * Bridges the API difference between OIDC (const char *key) and
- * auth_gate (ngx_str_t *key) JSON accessors.
  */
 static ngx_int_t
-jwks_get_string_field(ngx_auth_gate_json_t *obj, const char *key_cstr,
+jwks_get_string_field(nxe_json_t *obj, const char *key_cstr,
     ngx_str_t *value)
 {
-    ngx_str_t key;
-    ngx_auth_gate_json_t *field;
+    nxe_json_t *field;
 
-    key.data = (u_char *) key_cstr;
-    key.len = ngx_strlen(key_cstr);
-
-    field = ngx_auth_gate_json_object_get(obj, &key);
-    if (field == NULL || !ngx_auth_gate_json_is_string(field)) {
+    field = nxe_json_object_get(obj, key_cstr);
+    if (field == NULL || !nxe_json_is_string(field)) {
         return NGX_ERROR;
     }
 
-    return ngx_auth_gate_json_string(field, value);
+    return nxe_json_string(field, value);
 }
 
 
@@ -96,7 +89,7 @@ jwks_get_string_field(ngx_auth_gate_json_t *obj, const char *key_cstr,
  * Helper: check if a JSON object has a string field with specific value
  */
 static ngx_flag_t
-jwks_has_string_value(ngx_auth_gate_json_t *obj, const char *key_cstr,
+jwks_has_string_value(nxe_json_t *obj, const char *key_cstr,
     const char *expected)
 {
     ngx_str_t value;
@@ -111,7 +104,7 @@ jwks_has_string_value(ngx_auth_gate_json_t *obj, const char *key_cstr,
 
 
 static EVP_PKEY *
-jwks_create_rsa_key(ngx_auth_gate_json_t *jwk, ngx_pool_t *pool,
+jwks_create_rsa_key(nxe_json_t *jwk, ngx_pool_t *pool,
     ngx_log_t *log)
 {
     ngx_str_t n_str, e_str, n_decoded, e_decoded;
@@ -281,7 +274,7 @@ cleanup:
 
 
 static EVP_PKEY *
-jwks_create_ec_key(ngx_auth_gate_json_t *jwk, ngx_pool_t *pool,
+jwks_create_ec_key(nxe_json_t *jwk, ngx_pool_t *pool,
     ngx_log_t *log)
 {
     ngx_str_t crv_str, x_str, y_str, x_decoded, y_decoded;
@@ -490,7 +483,7 @@ cleanup:
 
 
 static EVP_PKEY *
-jwks_create_okp_key(ngx_auth_gate_json_t *jwk, ngx_pool_t *pool,
+jwks_create_okp_key(nxe_json_t *jwk, ngx_pool_t *pool,
     ngx_log_t *log)
 {
     ngx_str_t crv_str, x_str, x_decoded;
@@ -632,7 +625,7 @@ cleanup:
 ngx_auth_gate_jwks_keyset_t *
 ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
 {
-    ngx_auth_gate_json_t *root, *keys_array, *jwk;
+    nxe_json_t *root, *keys_array, *jwk;
     ngx_auth_gate_jwks_keyset_t *keyset;
     ngx_auth_gate_jwks_key_t *key;
     ngx_str_t kty_str, kid_str, alg_str, crv_str, keys_field;
@@ -652,7 +645,7 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
         return NULL;
     }
 
-    root = ngx_auth_gate_json_parse(json);
+    root = nxe_json_parse(json, pool);
     if (root == NULL) {
         ngx_log_error(NGX_LOG_ERR, log, 0,
                       "auth_gate_jwks: failed to parse JWKS JSON");
@@ -661,15 +654,15 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
 
     /* Get "keys" array */
     ngx_str_set(&keys_field, "keys");
-    keys_array = ngx_auth_gate_json_object_get(root, &keys_field);
-    if (keys_array == NULL || !ngx_auth_gate_json_is_array(keys_array)) {
+    keys_array = nxe_json_object_get_ns(root, &keys_field);
+    if (keys_array == NULL || !nxe_json_is_array(keys_array)) {
         ngx_log_error(NGX_LOG_ERR, log, 0,
                       "auth_gate_jwks: missing or invalid 'keys' array");
-        ngx_auth_gate_json_free(root);
+        nxe_json_free(root);
         return NULL;
     }
 
-    array_size = ngx_auth_gate_json_array_size(keys_array);
+    array_size = nxe_json_array_size(keys_array);
 
     if (array_size > NGX_AUTH_GATE_MAX_JWKS_KEYS) {
         ngx_log_error(NGX_LOG_WARN, log, 0,
@@ -682,7 +675,7 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
     /* Allocate keyset */
     keyset = ngx_pcalloc(pool, sizeof(ngx_auth_gate_jwks_keyset_t));
     if (keyset == NULL) {
-        ngx_auth_gate_json_free(root);
+        nxe_json_free(root);
         return NULL;
     }
 
@@ -690,14 +683,14 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
                                     array_size > 0 ? array_size : 1,
                                     sizeof(ngx_auth_gate_jwks_key_t));
     if (keyset->keys == NULL) {
-        ngx_auth_gate_json_free(root);
+        nxe_json_free(root);
         return NULL;
     }
 
     /* Register cleanup handler for EVP_PKEY resources */
     cln = ngx_pool_cleanup_add(pool, 0);
     if (cln == NULL) {
-        ngx_auth_gate_json_free(root);
+        nxe_json_free(root);
         return NULL;
     }
 
@@ -706,8 +699,8 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
 
     /* Iterate keys */
     for (i = 0; i < array_size; i++) {
-        jwk = ngx_auth_gate_json_array_get(keys_array, i);
-        if (jwk == NULL || !ngx_auth_gate_json_is_object(jwk)) {
+        jwk = nxe_json_array_get(keys_array, i);
+        if (jwk == NULL || !nxe_json_is_object(jwk)) {
             ngx_log_error(NGX_LOG_WARN, log, 0,
                           "auth_gate_jwks: invalid JWK at index %uz, "
                           "skipping", i);
@@ -763,7 +756,7 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
         key = ngx_array_push(keyset->keys);
         if (key == NULL) {
             EVP_PKEY_free(pkey);
-            ngx_auth_gate_json_free(root);
+            nxe_json_free(root);
             return NULL;
         }
 
@@ -833,7 +826,7 @@ ngx_auth_gate_jwks_parse(ngx_pool_t *pool, ngx_str_t *json, ngx_log_t *log)
                        &key->kid, &key->alg);
     }
 
-    ngx_auth_gate_json_free(root);
+    nxe_json_free(root);
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0,
                    "auth_gate_jwks: successfully parsed %uz keys",

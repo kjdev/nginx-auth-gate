@@ -20,29 +20,29 @@
 #define NGX_AUTH_GATE_MATCH_LIMIT         100000
 #define NGX_AUTH_GATE_MATCH_LIMIT_DEPTH   100000
 
-static ngx_int_t op_eq(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_gt(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_ge(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_lt(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_le(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_in(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
-static ngx_int_t op_any(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_eq(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_gt(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_ge(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_lt(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_le(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_in(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_any(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
 #if (NGX_PCRE)
-static ngx_int_t op_match(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_pool_t *pool);
+static ngx_int_t op_match(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_pool_t *pool);
 #endif
 
-static ngx_int_t op_compare_numbers(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, double *diff, ngx_log_t *log);
-static ngx_int_t op_compare_strings(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_int_t *diff);
+static ngx_int_t op_compare_numbers(nxe_json_t *actual,
+    nxe_json_t *expected, double *diff, ngx_log_t *log);
+static ngx_int_t op_compare_strings(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_int_t *diff);
 
 typedef struct {
     ngx_str_t                  name;
@@ -66,10 +66,10 @@ static op_entry_t operators[] = {
 
 /* Helper: numeric comparison preserving int64_t precision */
 static ngx_int_t
-op_compare_numbers(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, double *diff, ngx_log_t *log)
+op_compare_numbers(nxe_json_t *actual,
+    nxe_json_t *expected, double *diff, ngx_log_t *log)
 {
-    return ngx_auth_gate_json_compare(actual, expected, diff, log);
+    return nxe_json_compare(actual, expected, diff, log);
 }
 
 
@@ -78,13 +78,13 @@ op_compare_numbers(ngx_auth_gate_json_t *actual,
  * Returns NGX_OK with ngx_memn2cmp result in *diff.
  */
 static ngx_int_t
-op_compare_strings(ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected, ngx_int_t *diff)
+op_compare_strings(nxe_json_t *actual,
+    nxe_json_t *expected, ngx_int_t *diff)
 {
     ngx_str_t a, e;
 
-    if (ngx_auth_gate_json_string(actual, &a) != NGX_OK
-        || ngx_auth_gate_json_string(expected, &e) != NGX_OK)
+    if (nxe_json_string(actual, &a) != NGX_OK
+        || nxe_json_string(expected, &e) != NGX_OK)
     {
         return NGX_ERROR;
     }
@@ -102,17 +102,17 @@ op_compare_strings(ngx_auth_gate_json_t *actual,
 
 /* eq: JSON deep equality comparison */
 static ngx_int_t
-op_eq(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_eq(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
-    return ngx_auth_gate_json_equal(actual, expected)
+    return nxe_json_equal(actual, expected)
            ? NGX_OK : NGX_DECLINED;
 }
 
 
 /* gt: numeric greater-than, or string lexicographic comparison */
 static ngx_int_t
-op_gt(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_gt(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     double ndiff;
@@ -136,7 +136,7 @@ op_gt(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
 
 /* ge: numeric greater-or-equal, or string lexicographic comparison */
 static ngx_int_t
-op_ge(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_ge(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     double ndiff;
@@ -157,7 +157,7 @@ op_ge(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
 
 /* lt: numeric less-than, or string lexicographic comparison */
 static ngx_int_t
-op_lt(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_lt(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     double ndiff;
@@ -178,7 +178,7 @@ op_lt(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
 
 /* le: numeric less-or-equal, or string lexicographic comparison */
 static ngx_int_t
-op_le(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_le(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     double ndiff;
@@ -206,14 +206,14 @@ op_le(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
  * Returns NGX_ERROR for all other expected types.
  */
 static ngx_int_t
-op_in(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_in(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     size_t i, size;
-    ngx_auth_gate_json_t *elem;
+    nxe_json_t *elem;
 
-    if (ngx_auth_gate_json_is_array(expected)) {
-        size = ngx_auth_gate_json_array_size(expected);
+    if (nxe_json_is_array(expected)) {
+        size = nxe_json_array_size(expected);
 
         if (size > NGX_AUTH_GATE_MAX_ARRAY_SIZE) {
             ngx_log_error(NGX_LOG_WARN, pool->log, 0,
@@ -224,8 +224,8 @@ op_in(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
         }
 
         for (i = 0; i < size; i++) {
-            elem = ngx_auth_gate_json_array_get(expected, i);
-            if (ngx_auth_gate_json_equal(actual, elem)) {
+            elem = nxe_json_array_get(expected, i);
+            if (nxe_json_equal(actual, elem)) {
                 return NGX_OK;
             }
         }
@@ -233,18 +233,18 @@ op_in(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
         return NGX_DECLINED;
     }
 
-    if (ngx_auth_gate_json_is_object(expected)) {
+    if (nxe_json_is_object(expected)) {
         /* Object mode: O(1) key lookup, bounded by MAX_JSON_SIZE */
         ngx_str_t key;
 
-        if (ngx_auth_gate_json_string(actual, &key) != NGX_OK) {
+        if (nxe_json_string(actual, &key) != NGX_OK) {
             ngx_log_error(NGX_LOG_WARN, pool->log, 0,
                           "auth_gate: in operator object key lookup "
                           "requires a string value");
             return NGX_ERROR;
         }
 
-        elem = ngx_auth_gate_json_object_get(expected, &key);
+        elem = nxe_json_object_get_ns(expected, &key);
 
         return (elem != NULL) ? NGX_OK : NGX_DECLINED;
     }
@@ -255,20 +255,20 @@ op_in(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
 
 /* any: check if two arrays share any common element */
 static ngx_int_t
-op_any(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_any(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     size_t i, j, asize, esize;
-    ngx_auth_gate_json_t *a, *e;
+    nxe_json_t *a, *e;
 
-    if (!ngx_auth_gate_json_is_array(actual)
-        || !ngx_auth_gate_json_is_array(expected))
+    if (!nxe_json_is_array(actual)
+        || !nxe_json_is_array(expected))
     {
         return NGX_ERROR;
     }
 
-    asize = ngx_auth_gate_json_array_size(actual);
-    esize = ngx_auth_gate_json_array_size(expected);
+    asize = nxe_json_array_size(actual);
+    esize = nxe_json_array_size(expected);
 
     if (asize > NGX_AUTH_GATE_MAX_ARRAY_SIZE
         || esize > NGX_AUTH_GATE_MAX_ARRAY_SIZE)
@@ -292,12 +292,12 @@ op_any(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
     }
 
     for (i = 0; i < asize; i++) {
-        a = ngx_auth_gate_json_array_get(actual, i);
+        a = nxe_json_array_get(actual, i);
 
         for (j = 0; j < esize; j++) {
-            e = ngx_auth_gate_json_array_get(expected, j);
+            e = nxe_json_array_get(expected, j);
 
-            if (ngx_auth_gate_json_equal(a, e)) {
+            if (nxe_json_equal(a, e)) {
                 return NGX_OK;
             }
         }
@@ -313,15 +313,15 @@ op_any(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
  */
 #if (NGX_PCRE)
 static ngx_int_t
-op_match(ngx_auth_gate_json_t *actual, ngx_auth_gate_json_t *expected,
+op_match(nxe_json_t *actual, nxe_json_t *expected,
     ngx_pool_t *pool)
 {
     ngx_str_t actual_str, pattern_str;
     ngx_regex_compile_t rc;
     u_char errstr[NGX_MAX_CONF_ERRSTR];
 
-    if (ngx_auth_gate_json_string(actual, &actual_str) != NGX_OK
-        || ngx_auth_gate_json_string(expected, &pattern_str) != NGX_OK)
+    if (nxe_json_string(actual, &actual_str) != NGX_OK
+        || nxe_json_string(expected, &pattern_str) != NGX_OK)
     {
         return NGX_ERROR;
     }

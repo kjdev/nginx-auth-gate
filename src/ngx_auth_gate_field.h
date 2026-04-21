@@ -9,7 +9,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include "ngx_auth_gate_json.h"
+#include "nxe_json.h"
 
 /** Field segment type */
 typedef enum {
@@ -62,8 +62,8 @@ ngx_int_t ngx_auth_gate_field_parse(ngx_pool_t *pool,
  *
  * @return JSON value at the path, or NULL if not found
  */
-ngx_auth_gate_json_t *ngx_auth_gate_field_get(
-    ngx_auth_gate_json_t *root,
+nxe_json_t *ngx_auth_gate_field_get(
+    nxe_json_t *root,
     ngx_auth_gate_field_path_t *path);
 
 /**

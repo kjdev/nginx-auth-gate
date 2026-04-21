@@ -9,7 +9,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include "ngx_auth_gate_json.h"
+#include "nxe_json.h"
 
 /**
  * Operator handler function pointer type
@@ -19,8 +19,8 @@
  * @return NGX_ERROR    internal error (type mismatch, resource limit, etc.)
  */
 typedef ngx_int_t (*ngx_auth_gate_operator_pt)(
-    ngx_auth_gate_json_t *actual,
-    ngx_auth_gate_json_t *expected,
+    nxe_json_t *actual,
+    nxe_json_t *expected,
     ngx_pool_t *pool);
 
 /**

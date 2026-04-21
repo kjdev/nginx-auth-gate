@@ -8,7 +8,7 @@
 #include <ngx_http.h>
 
 #include "ngx_http_auth_gate_module.h"
-#include "ngx_auth_gate_json.h"
+#include "nxe_json.h"
 #include "ngx_auth_gate_jwt.h"
 #include "ngx_auth_gate_jws.h"
 
@@ -56,7 +56,7 @@ static ngx_int_t require_validate_json(ngx_http_request_t *r,
 static ngx_int_t require_validate_jwt(ngx_http_request_t *r,
     ngx_http_auth_gate_loc_conf_t *lcf);
 static ngx_int_t require_validate_requirement(ngx_http_request_t *r,
-    ngx_auth_gate_requirement_t *req, ngx_auth_gate_json_t *root);
+    ngx_auth_gate_requirement_t *req, nxe_json_t *root);
 
 /* Configuration parsing helpers */
 static ngx_int_t require_parse_error(ngx_conf_t *cf, ngx_str_t *value,
@@ -323,7 +323,7 @@ require_validate_compare(ngx_http_request_t *r,
     ngx_int_t rc;
     ngx_str_t val;
     ngx_auth_gate_requirement_t *reqs;
-    ngx_auth_gate_json_t *actual;
+    nxe_json_t *actual;
 
     reqs = lcf->require_compare->elts;
 
@@ -336,7 +336,7 @@ require_validate_compare(ngx_http_request_t *r,
         }
 
         /* Wrap string value as JSON string for comparison */
-        actual = ngx_auth_gate_json_from_string(&val);
+        actual = nxe_json_from_string(&val);
         if (actual == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "auth_gate: failed to create JSON "
@@ -345,7 +345,7 @@ require_validate_compare(ngx_http_request_t *r,
         }
 
         rc = require_validate_requirement(r, &reqs[i], actual);
-        ngx_auth_gate_json_free(actual);
+        nxe_json_free(actual);
 
         if (rc != NGX_OK) {
             return rc;
@@ -369,7 +369,7 @@ require_validate_json(ngx_http_request_t *r,
     ngx_str_t val;
     ngx_auth_gate_var_group_t *groups;
     ngx_auth_gate_requirement_t *reqs;
-    ngx_auth_gate_json_t *json;
+    nxe_json_t *json;
 
     groups = lcf->require_json->elts;
 
@@ -387,7 +387,7 @@ require_validate_json(ngx_http_request_t *r,
             return reqs[0].error;
         }
 
-        json = ngx_auth_gate_json_parse(&val);
+        json = nxe_json_parse(&val, r->pool);
         if (json == NULL) {
             ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                           "auth_gate_json: JSON parse failed");
@@ -396,8 +396,8 @@ require_validate_json(ngx_http_request_t *r,
             return reqs[0].error;
         }
 
-        if (!ngx_auth_gate_json_is_object(json)
-            && !ngx_auth_gate_json_is_array(json))
+        if (!nxe_json_is_object(json)
+            && !nxe_json_is_array(json))
         {
             reqs = groups[i].requirements->elts;
 
@@ -407,8 +407,8 @@ require_validate_json(ngx_http_request_t *r,
                                   "auth_gate_json: parsed value is a "
                                   "scalar (type=%d); field path requires "
                                   "an object or array as root value",
-                                  ngx_auth_gate_json_type(json));
-                    ngx_auth_gate_json_free(json);
+                                  nxe_json_type(json));
+                    nxe_json_free(json);
                     return reqs[j].error;
                 }
             }
@@ -419,12 +419,12 @@ require_validate_json(ngx_http_request_t *r,
         for (j = 0; j < groups[i].requirements->nelts; j++) {
             rc = require_validate_requirement(r, &reqs[j], json);
             if (rc != NGX_OK) {
-                ngx_auth_gate_json_free(json);
+                nxe_json_free(json);
                 return rc;
             }
         }
 
-        ngx_auth_gate_json_free(json);
+        nxe_json_free(json);
     }
 
     return NGX_OK;
@@ -444,7 +444,7 @@ require_validate_jwt(ngx_http_request_t *r,
     ngx_str_t val;
     ngx_auth_gate_var_group_t *groups;
     ngx_auth_gate_requirement_t *reqs;
-    ngx_auth_gate_json_t *json;
+    nxe_json_t *json;
 
     groups = lcf->require_jwt->elts;
 
@@ -470,8 +470,8 @@ require_validate_jwt(ngx_http_request_t *r,
             return reqs[0].error;
         }
 
-        if (!ngx_auth_gate_json_is_object(json)
-            && !ngx_auth_gate_json_is_array(json))
+        if (!nxe_json_is_object(json)
+            && !nxe_json_is_array(json))
         {
             reqs = groups[i].requirements->elts;
 
@@ -481,8 +481,8 @@ require_validate_jwt(ngx_http_request_t *r,
                                   "auth_gate_jwt: decoded payload is a "
                                   "scalar (type=%d); field path requires "
                                   "an object or array as root value",
-                                  ngx_auth_gate_json_type(json));
-                    ngx_auth_gate_json_free(json);
+                                  nxe_json_type(json));
+                    nxe_json_free(json);
                     return reqs[j].error;
                 }
             }
@@ -493,12 +493,12 @@ require_validate_jwt(ngx_http_request_t *r,
         for (j = 0; j < groups[i].requirements->nelts; j++) {
             rc = require_validate_requirement(r, &reqs[j], json);
             if (rc != NGX_OK) {
-                ngx_auth_gate_json_free(json);
+                nxe_json_free(json);
                 return rc;
             }
         }
 
-        ngx_auth_gate_json_free(json);
+        nxe_json_free(json);
     }
 
     return NGX_OK;
@@ -516,12 +516,12 @@ require_validate_jwt(ngx_http_request_t *r,
  */
 static ngx_int_t
 require_validate_requirement(ngx_http_request_t *r,
-    ngx_auth_gate_requirement_t *req, ngx_auth_gate_json_t *root)
+    ngx_auth_gate_requirement_t *req, nxe_json_t *root)
 {
     ngx_int_t rc;
     ngx_str_t expected_str;
     ngx_str_t field_str;
-    ngx_auth_gate_json_t *actual, *expected = NULL;
+    nxe_json_t *actual, *expected = NULL;
 
     static const ngx_str_t unknown = ngx_string("(unknown)");
 
@@ -547,7 +547,7 @@ require_validate_requirement(ngx_http_request_t *r,
     if (req->compiled_regex != NULL) {
         ngx_str_t actual_str;
 
-        if (ngx_auth_gate_json_string(actual, &actual_str) != NGX_OK) {
+        if (nxe_json_string(actual, &actual_str) != NGX_OK) {
             rc = NGX_ERROR;
         } else if (memchr(actual_str.data, '\0', actual_str.len) != NULL) {
             ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
@@ -578,9 +578,9 @@ require_validate_requirement(ngx_http_request_t *r,
     }
 
     if (req->expected_json) {
-        expected = ngx_auth_gate_json_parse(&expected_str);
+        expected = nxe_json_parse(&expected_str, r->pool);
     } else {
-        expected = ngx_auth_gate_json_from_string(&expected_str);
+        expected = nxe_json_from_string(&expected_str);
     }
 
     if (expected == NULL) {
@@ -615,7 +615,7 @@ require_validate_requirement(ngx_http_request_t *r,
                 ctx = ngx_pcalloc(r->pool,
                                   sizeof(ngx_http_auth_gate_ctx_t));
                 if (ctx == NULL) {
-                    ngx_auth_gate_json_free(expected);
+                    nxe_json_free(expected);
                     return req->error;
                 }
                 ngx_http_set_ctx(r, ctx,
@@ -631,7 +631,7 @@ require_validate_requirement(ngx_http_request_t *r,
                               " field: %V",
                               NGX_HTTP_AUTH_GATE_MAX_DYNAMIC_REGEX,
                               &field_str);
-                ngx_auth_gate_json_free(expected);
+                nxe_json_free(expected);
                 return req->error;
             }
 
@@ -642,7 +642,7 @@ require_validate_requirement(ngx_http_request_t *r,
 
     rc = req->operator(actual, expected, r->pool);
 
-    ngx_auth_gate_json_free(expected);
+    nxe_json_free(expected);
 
     /* 5. Apply negation (NGX_ERROR is NOT flipped) */
 
@@ -816,9 +816,9 @@ require_parse_requirement(ngx_conf_t *cf, ngx_str_t *args,
 
     /* Validate constant json= value at configure time */
     if (req->expected_json && req->expected->lengths == NULL) {
-        ngx_auth_gate_json_t *test;
+        nxe_json_t *test;
 
-        test = ngx_auth_gate_json_parse(expected_str);
+        test = nxe_json_parse(expected_str, cf->pool);
         if (test == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "auth_gate: invalid JSON in "
@@ -826,7 +826,7 @@ require_parse_requirement(ngx_conf_t *cf, ngx_str_t *args,
             return NGX_CONF_ERROR;
         }
 
-        ngx_auth_gate_json_free(test);
+        nxe_json_free(test);
     }
 
 #if (NGX_PCRE)
@@ -854,10 +854,10 @@ require_parse_requirement(ngx_conf_t *cf, ngx_str_t *args,
 
             /* json= prefix: parse JSON to extract the string pattern */
             if (req->expected_json) {
-                ngx_auth_gate_json_t *json;
+                nxe_json_t *json;
                 ngx_str_t json_str;
 
-                json = ngx_auth_gate_json_parse(expected_str);
+                json = nxe_json_parse(expected_str, cf->pool);
                 if (json == NULL) {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                        "auth_gate: invalid JSON in "
@@ -866,20 +866,20 @@ require_parse_requirement(ngx_conf_t *cf, ngx_str_t *args,
                     return NGX_CONF_ERROR;
                 }
 
-                if (ngx_auth_gate_json_string(json, &json_str)
+                if (nxe_json_string(json, &json_str)
                     != NGX_OK)
                 {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                        "auth_gate: json= value for "
                                        "match must be a string");
-                    ngx_auth_gate_json_free(json);
+                    nxe_json_free(json);
                     return NGX_CONF_ERROR;
                 }
 
                 pattern.data = ngx_pstrdup(cf->pool, &json_str);
                 pattern.len = json_str.len;
 
-                ngx_auth_gate_json_free(json);
+                nxe_json_free(json);
 
                 if (pattern.data == NULL) {
                     return NGX_CONF_ERROR;

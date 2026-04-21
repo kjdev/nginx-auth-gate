@@ -61,13 +61,13 @@ jwt_find_payload(ngx_str_t *token, ngx_str_t *payload_b64)
 }
 
 
-ngx_auth_gate_json_t *
+nxe_json_t *
 ngx_auth_gate_jwt_decode_payload(ngx_str_t *token, ngx_pool_t *pool)
 {
     u_char *decoded;
     ngx_str_t payload_b64, payload;
     size_t decoded_len;
-    ngx_auth_gate_json_t *json;
+    nxe_json_t *json;
 
     if (token == NULL || token->data == NULL || token->len == 0
         || pool == NULL)
@@ -106,7 +106,7 @@ ngx_auth_gate_jwt_decode_payload(ngx_str_t *token, ngx_pool_t *pool)
 
     payload.data[payload.len] = '\0';
 
-    json = ngx_auth_gate_json_parse(&payload);
+    json = nxe_json_parse(&payload, pool);
 
     /*
      * Clear decoded payload to minimize sensitive data residency in memory.
@@ -127,13 +127,13 @@ ngx_auth_gate_jwt_decode_payload(ngx_str_t *token, ngx_pool_t *pool)
 }
 
 
-ngx_auth_gate_json_t *
+nxe_json_t *
 ngx_auth_gate_jwt_decode_header(ngx_str_t *header_b64, ngx_pool_t *pool)
 {
     u_char *decoded;
     ngx_str_t header;
     size_t decoded_len;
-    ngx_auth_gate_json_t *json;
+    nxe_json_t *json;
 
     if (header_b64 == NULL || header_b64->data == NULL
         || header_b64->len == 0 || pool == NULL)
@@ -165,7 +165,7 @@ ngx_auth_gate_jwt_decode_header(ngx_str_t *header_b64, ngx_pool_t *pool)
 
     header.data[header.len] = '\0';
 
-    json = ngx_auth_gate_json_parse(&header);
+    json = nxe_json_parse(&header, pool);
 
     ngx_memzero(decoded, decoded_len + 1);
 
