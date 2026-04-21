@@ -195,12 +195,16 @@ All limit exceedances return `NGX_ERROR`, resulting in a 403 response by default
 
 Numeric comparison operators such as `gt`, `ge`, `lt`, `le` follow these precision rules:
 
-| Case | Comparison Method | Precision |
-|------|-------------------|-----------|
+| Case | Comparison Method | Result |
+|------|-------------------|--------|
 | Both integers | Direct `int64_t` comparison | Full precision (up to 2^63-1) |
 | Integer/real mixed (real has integer value) | Convert to `int64_t` and compare | Full precision |
-| Integer/real mixed (real has fractional value) | Fallback to `double` | Possible precision loss above 2^53 |
+| Integer/real mixed (integer within 2^53 and real has fractional value) | Fallback to `double` | IEEE 754 double precision |
 | Both reals | `double` comparison | IEEE 754 double precision |
+| Any integer operand with magnitude above 2^53 | Rejected | `NGX_ERROR` (fail-closed) |
+| Any operand is `NaN` or `Infinity` | Rejected | `NGX_ERROR` (fail-closed) |
+
+Before the `double` fallback, any integer operand whose absolute value exceeds `2^53` (`9,007,199,254,740,992`) is rejected with `NGX_ERROR`. The cast to `double` would otherwise collapse it onto a neighbouring value and could silently flip authorization decisions. Rejected comparisons yield a 403 response by default.
 
 For UNIX timestamp comparisons such as JWT `exp` / `nbf` claims, direct integer-to-integer comparison is used, so there are no precision issues.
 
