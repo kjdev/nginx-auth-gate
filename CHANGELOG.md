@@ -1,5 +1,26 @@
 # Changelog
 
+## [cd64594](../../commit/cd64594) - 2026-04-21
+
+### Changed
+
+- Replaced the in-tree JSON wrapper `ngx_auth_gate_json` with the external [nxe-json](https://github.com/kjdev/nxe-json) submodule (pinned to the 0.1.0 release)
+  - Numeric comparison operators (`gt` / `ge` / `lt` / `le`) are now fail-closed
+    - Any integer operand whose magnitude exceeds 2^53 (9,007,199,254,740,992) returns `NGX_ERROR` rather than falling back to a lossy `double` conversion
+    - `NaN` / `Infinity` operands also return `NGX_ERROR`
+    - Rejected comparisons yield a 403 response by default
+  - Duplicate keys within a single JSON object are rejected via `JSON_REJECT_DUPLICATES` (unchanged behavior)
+
+## [a42e5b1](../../commit/a42e5b1) - 2026-04-21
+
+### Added
+
+- Add `nxe-json` 0.1.0 submodule under `nxe-json/` (jansson wrapper with built-in size, depth, array, string, and key-count limits)
+
+### Changed
+
+- Building from source now requires initializing the submodule (`git clone --recursive` or `git submodule update --init --recursive`)
+
 ## [fb79555](../../commit/fb79555) - 2026-03-23
 
 ### Changed
@@ -9,7 +30,6 @@
   - PCRE symbols are resolved from the shared library already loaded by the nginx process
 
 ## [f76f2c9](../../commit/f76f2c9) - 2026-03-23
-
 
 ### Fixed
 
