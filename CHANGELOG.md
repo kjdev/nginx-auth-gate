@@ -1,5 +1,13 @@
 # Changelog
 
+## [0785a8a](../../commit/0785a8a) - 2026-04-24
+
+### Changed
+
+- Bumped the [nxe-json](https://github.com/kjdev/nxe-json) submodule from 0.1.0 to 0.2.0
+  - Existing scalar extractors (`nxe_json_string` / `_integer` / `_real` / `_boolean` / `_number`) and existing object helper (`_object_get_string`) now zero-clear their out-parameters on failure (fail-closed hardening; no behavior change for callers that check the return value)
+  - New object helpers (`nxe_json_object_get_integer`, `nxe_json_object_get_boolean`) added upstream with the same zero-clearing behavior built in; not yet used by auth_gate
+
 ## [cd64594](../../commit/cd64594) - 2026-04-21
 
 ### Changed
