@@ -87,6 +87,7 @@ location /api {
 - The `none` algorithm is explicitly rejected to prevent algorithm confusion attacks
 - HMAC algorithms (`HS256`, `HS384`, `HS512`) are rejected because symmetric key verification is not appropriate for JWKS-based public key verification
 - Key selection uses `kid` when the JWT header provides one, and always filters candidate JWKS keys by `alg` compatibility and key type (`kty`) to prevent algorithm confusion attacks
+- `kid` matching is fail-closed: when a JWT specifies a `kid` and the JWKS contains key(s) with the same `kid`, only those keys are tried (no fallback to other keys). When the JWKS contains no key with that `kid`, fallback is limited to keys **without a `kid`**; keys with a different `kid` are never tried (key-confusion protection)
 - JWKS response size is limited to 256 KiB and key count to 64 to prevent resource exhaustion
 - Key validation: RSA minimum key length 2048 bit, EC coordinate length validation (P-256/secp256k1: 32, P-384: 48, P-521: 66), EdDSA public key length validation (Ed25519: 32, Ed448: 57)
 

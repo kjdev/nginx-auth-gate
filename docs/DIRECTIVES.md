@@ -188,7 +188,13 @@ The JWKS is fetched via an nginx subrequest to the specified URI. The JWKS locat
 
 The `none` algorithm and HMAC algorithms (`HS256`, `HS384`, `HS512`) are explicitly rejected.
 
-**Key matching**: Keys are matched by `kid` (Key ID), `alg` (algorithm), and `kty` (key type). When the JWT header contains a `kid`, only keys with a matching `kid` are tried. When the JWT header does not contain a `kid`, all keys with compatible `alg` and `kty` are tried. If no compatible key is found, verification fails.
+**Key matching**: Keys are matched by `kid` (Key ID), `alg` (algorithm), and `kty` (key type).
+
+- When the JWT header contains a `kid` and the JWKS has **one or more keys** with the same `kid`: only those keys are tried (kid-strict, fail-closed). If signature verification fails with the matched keys, no fallback to other keys occurs.
+- When the JWT header contains a `kid` but **no key in the JWKS** carries that `kid`: only keys **without a `kid`** are tried as a fallback. Keys with a different `kid` are never tried (key-confusion protection).
+- When the JWT header does **not** contain a `kid`: all keys with compatible `alg` and `kty` are tried.
+
+If no compatible key is found, or if signature verification fails with all eligible keys, verification fails.
 
 ```nginx
 # JWKS endpoint (internal location proxying to IdP)

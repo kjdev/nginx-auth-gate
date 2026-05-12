@@ -107,7 +107,7 @@ add 'proxy_set_header Accept-Encoding ""' to the JWKS subrequest location
 ```
 or:
 ```
-auth_gate_jwks: failed to parse JWKS JSON
+nxe_jwx: failed to parse JWKS as JSON
 auth_gate_jwt_verify: JWKS parse failed for '/jwks'
 ```
 
