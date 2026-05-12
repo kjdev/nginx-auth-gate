@@ -493,7 +493,7 @@ location / {
 GET /
 --- error_code: 403
 
-=== scalar JWT with field path uses correct error code (2nd req)
+=== scalar JWT payload is rejected by decode (RFC 7519: payload must be object)
 --- http_config
 include $TEST_NGINX_CONF_DIR/authorized_server.conf;
 --- config
@@ -505,7 +505,9 @@ location / {
 }
 --- request
 GET /
---- error_code: 403
+--- error_code: 401
+--- error_log
+nxe_jwx: payload is not a JSON object
 
 === field index with leading zeros must be rejected
 --- http_config
@@ -874,7 +876,7 @@ location / {
 GET /
 --- error_code: 200
 
-=== JWT array payload - index access
+=== JWT array payload is rejected by decode (RFC 7519: payload must be object)
 --- http_config
 include $TEST_NGINX_CONF_DIR/authorized_server.conf;
 --- config
@@ -885,7 +887,9 @@ location / {
 }
 --- request
 GET /
---- error_code: 200
+--- error_code: 403
+--- error_log
+nxe_jwx: payload is not a JSON object
 
 === JWT array payload - key access must fail
 --- http_config

@@ -469,7 +469,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jwt_verify: signature verification failed
+auth_gate_jwt_verify: JWKS parse failed
 
 === JWKS with only encryption keys: verification fails
 --- http_config
@@ -489,7 +489,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jwt_verify: signature verification failed
+auth_gate_jwt_verify: JWKS parse failed
 
 === config error: missing variable prefix $
 --- config
