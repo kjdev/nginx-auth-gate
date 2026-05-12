@@ -125,7 +125,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === alg:none JWT: rejected
 --- http_config
@@ -145,7 +145,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: algorithm 'none' is not allowed
+nxe_jwx: 'none' algorithm rejected
 
 === JWKS fetch failure (500): returns error
 --- http_config
@@ -257,7 +257,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === multiple verify: different URIs, both pass
 --- http_config
@@ -469,7 +469,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: invalid arguments for verification
+auth_gate_jwt_verify: signature verification failed
 
 === JWKS with only encryption keys: verification fails
 --- http_config
@@ -489,7 +489,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: invalid arguments for verification
+auth_gate_jwt_verify: signature verification failed
 
 === config error: missing variable prefix $
 --- config
@@ -592,7 +592,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: HMAC algorithm
+nxe_jwx: alg "HS256" is not supported
 
 === merge: child overrides parent (child valid JWKS)
 --- http_config
@@ -714,7 +714,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: JWT has more than 3 segments
+nxe_jwx: token has more than three segments
 
 === JWKS key without alg field: matches by kty (RS256)
 --- http_config
@@ -788,7 +788,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === alg confusion: ES256 token against RSA-only JWKS rejected
 --- http_config
@@ -808,7 +808,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === non-whitelist algorithm (RS128): rejected
 --- http_config
@@ -828,7 +828,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-is not in whitelist
+nxe_jwx: alg "RS128" is not supported
 
 === JWKS alg mismatch: JWKS has RS384 but JWT has RS256
 --- http_config
@@ -848,7 +848,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === JWT without kid: matches JWKS key by kty (valid signature)
 --- http_config
@@ -886,7 +886,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: signature verification failed
+auth_gate_jwt_verify: signature verification failed
 
 === JWT header without alg field: rejected
 --- http_config
@@ -906,7 +906,7 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: missing 'alg' in JWT header
+nxe_jwx: token has no alg
 
 === invalid base64url signature: rejected
 --- http_config
@@ -926,4 +926,4 @@ location / {
 GET /
 --- error_code: 401
 --- error_log
-auth_gate_jws: failed to decode JWT signature
+nxe_jwx: invalid base64url in signature

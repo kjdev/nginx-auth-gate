@@ -751,7 +751,7 @@ my $big = "A" x 17000;
 GET /
 --- error_code: 403
 --- error_log
-auth_gate_jwt: token too large
+nxe_jwx: token exceeds
 
 === JWT scalar payload with non-root field path must deny
 --- http_config
