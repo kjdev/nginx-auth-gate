@@ -1917,7 +1917,8 @@ jwt_verify_start(ngx_http_request_t *r,
 
     ctx->jwks_results = ngx_pcalloc(r->pool,
                                     unique_count *
-                                    sizeof(ngx_http_auth_gate_jwks_fetch_result_t));
+                                    sizeof(
+                                        ngx_http_auth_gate_jwks_fetch_result_t));
     if (ctx->jwks_results == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
