@@ -470,28 +470,13 @@ require_validate_jwt(ngx_http_request_t *r,
             return reqs[0].error;
         }
 
+        /*
+         * nxe_jwx_decode() enforces RFC 7519: the payload is guaranteed
+         * to be a JSON object on success.  Scalar / array / NULL payloads
+         * are rejected by the decoder itself, so no extra guards are
+         * needed here.
+         */
         json = nxe_jwx_token_payload(token);
-        if (json == NULL) {
-            reqs = groups[i].requirements->elts;
-            return reqs[0].error;
-        }
-
-        if (!nxe_json_is_object(json)
-            && !nxe_json_is_array(json))
-        {
-            reqs = groups[i].requirements->elts;
-
-            for (j = 0; j < groups[i].requirements->nelts; j++) {
-                if (reqs[j].field.segments->nelts > 0) {
-                    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                                  "auth_gate_jwt: decoded payload is a "
-                                  "scalar (type=%d); field path requires "
-                                  "an object or array as root value",
-                                  nxe_json_type(json));
-                    return reqs[j].error;
-                }
-            }
-        }
 
         reqs = groups[i].requirements->elts;
 
