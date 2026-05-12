@@ -1,5 +1,37 @@
 # Changelog
 
+## [447acc5](../../commit/447acc5) - 2026-05-13
+
+### Changed
+
+- Removed the now-unreachable scalar / array / NULL payload guard in `require_validate_jwt` (nxe_jwx_decode enforces RFC 7519 section 7.2 at decode time, leaving the legacy guard as dead code; no behavioral change)
+
+## [aa8b2d8](../../commit/aa8b2d8) - 2026-05-13
+
+### Changed
+
+- Replaced the in-tree JWT decode / JWKS parse / JWS verification implementation (`ngx_auth_gate_jwt` / `_jwks` / `_jws`) with the external [nxe-jwx](https://github.com/kjdev/nxe-jwx) submodule (pinned to the 0.1.0 release)
+  - `auth_gate_jwt` accepts **only JSON object** payloads per RFC 7519 section 7.2 (JWTs with a scalar or array root are rejected at decode time; previously a scalar payload was rejected via field-path detection (403) and an array payload was indexable)
+  - `auth_gate_jwt_verify` `kid` matching is now fail-closed
+    - When the JWT specifies a `kid` and the JWKS contains key(s) with the same `kid`: only those keys are tried (no fallback to other keys; key-confusion protection)
+    - When the JWT specifies a `kid` and the JWKS contains no key with that `kid`: fallback is limited to keys **without a `kid`** (keys with a different `kid` are never tried)
+  - `auth_gate_jwt_verify` rejects empty JWKS responses and JWKS containing only `use=enc` keys at parse time
+  - Error log strings for `auth_gate_jwt` / `auth_gate_jwt_verify` have changed (the `auth_gate_jwt:` / `auth_gate_jws:` / `auth_gate_jwks:` prefixes are replaced with `nxe_jwx:` prefixes)
+
+## [1d59ef5](../../commit/1d59ef5) - 2026-05-13
+
+### Changed
+
+- Bumped the [nxe-json](https://github.com/kjdev/nxe-json) submodule from 0.2.0 to 0.3.0
+  - Adds the object iteration API (`nxe_json_object_size`, `nxe_json_object_iter` / `_iter_next` / `_iter_key` / `_iter_value`), which nxe-jwx uses to walk JWKS keyval documents
+  - Raises the minimum required jansson version to 2.14 (needed for `json_object_iter_key_len` and related entry points)
+
+## [4981b72](../../commit/4981b72) - 2026-05-13
+
+### Added
+
+- Added the nxe-jwx submodule under `nxe-jwx/` (pinned to 0.1.0)
+
 ## [0785a8a](../../commit/0785a8a) - 2026-04-24
 
 ### Changed
