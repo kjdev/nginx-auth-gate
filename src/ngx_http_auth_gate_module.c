@@ -9,8 +9,7 @@
 
 #include "ngx_http_auth_gate_module.h"
 #include "nxe_json.h"
-#include "ngx_auth_gate_jwt.h"
-#include "ngx_auth_gate_jws.h"
+#include "nxe_jwx.h"
 
 #define NGX_HTTP_AUTH_GATE_DEFAULT_ERROR  NGX_HTTP_FORBIDDEN
 #define NGX_HTTP_AUTH_GATE_JSON_PREFIX_LEN  5
@@ -444,6 +443,7 @@ require_validate_jwt(ngx_http_request_t *r,
     ngx_str_t val;
     ngx_auth_gate_var_group_t *groups;
     ngx_auth_gate_requirement_t *reqs;
+    nxe_jwx_token_t *token;
     nxe_json_t *json;
 
     groups = lcf->require_jwt->elts;
@@ -462,11 +462,17 @@ require_validate_jwt(ngx_http_request_t *r,
             return reqs[0].error;
         }
 
-        json = ngx_auth_gate_jwt_decode_payload(&val, r->pool);
-        if (json == NULL) {
+        token = nxe_jwx_decode(&val, r->pool);
+        if (token == NULL) {
             /* Specific failure reason already logged by decode function */
             reqs = groups[i].requirements->elts;
             /* Same rationale as variable evaluation failure above */
+            return reqs[0].error;
+        }
+
+        json = nxe_jwx_token_payload(token);
+        if (json == NULL) {
+            reqs = groups[i].requirements->elts;
             return reqs[0].error;
         }
 
@@ -482,7 +488,6 @@ require_validate_jwt(ngx_http_request_t *r,
                                   "scalar (type=%d); field path requires "
                                   "an object or array as root value",
                                   nxe_json_type(json));
-                    nxe_json_free(json);
                     return reqs[j].error;
                 }
             }
@@ -493,12 +498,9 @@ require_validate_jwt(ngx_http_request_t *r,
         for (j = 0; j < groups[i].requirements->nelts; j++) {
             rc = require_validate_requirement(r, &reqs[j], json);
             if (rc != NGX_OK) {
-                nxe_json_free(json);
                 return rc;
             }
         }
-
-        nxe_json_free(json);
     }
 
     return NGX_OK;
@@ -1379,7 +1381,7 @@ require_merge_jwt_verify(ngx_conf_t *cf, ngx_array_t **prev,
     ngx_array_t **conf)
 {
     ngx_array_t *merged;
-    ngx_auth_gate_jwt_verify_t *pv, *cv, *dst;
+    ngx_http_auth_gate_jwt_verify_t *pv, *cv, *dst;
     ngx_uint_t i, j;
     ngx_flag_t overridden;
 
@@ -1394,7 +1396,7 @@ require_merge_jwt_verify(ngx_conf_t *cf, ngx_array_t **prev,
 
     merged = ngx_array_create(cf->pool,
                               (*prev)->nelts + (*conf)->nelts,
-                              sizeof(ngx_auth_gate_jwt_verify_t));
+                              sizeof(ngx_http_auth_gate_jwt_verify_t));
     if (merged == NULL) {
         return NGX_ERROR;
     }
@@ -1636,7 +1638,7 @@ ngx_http_auth_gate_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
             found = 0;
 
             if (conf->require_jwt_verify != NULL) {
-                ngx_auth_gate_jwt_verify_t *verifies;
+                ngx_http_auth_gate_jwt_verify_t *verifies;
 
                 verifies = conf->require_jwt_verify->elts;
 
@@ -1710,7 +1712,7 @@ ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
 
     ngx_str_t *values;
     ngx_uint_t i;
-    ngx_auth_gate_jwt_verify_t *verify;
+    ngx_http_auth_gate_jwt_verify_t *verify;
     ngx_http_compile_complex_value_t ccv;
     ngx_flag_t error_set;
 
@@ -1749,7 +1751,7 @@ ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
 
         if (lcf->require_jwt_verify == NULL) {
             lcf->require_jwt_verify = ngx_array_create(
-                cf->pool, 2, sizeof(ngx_auth_gate_jwt_verify_t));
+                cf->pool, 2, sizeof(ngx_http_auth_gate_jwt_verify_t));
             if (lcf->require_jwt_verify == NULL) {
                 return NGX_CONF_ERROR;
             }
@@ -1757,7 +1759,7 @@ ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
 
         /* Duplicate variable check */
         {
-            ngx_auth_gate_jwt_verify_t *existing;
+            ngx_http_auth_gate_jwt_verify_t *existing;
             ngx_uint_t j;
 
             existing = lcf->require_jwt_verify->elts;
@@ -1780,7 +1782,7 @@ ngx_http_auth_gate_conf_set_jwt_verify(ngx_conf_t *cf,
             return NGX_CONF_ERROR;
         }
 
-        ngx_memzero(verify, sizeof(ngx_auth_gate_jwt_verify_t));
+        ngx_memzero(verify, sizeof(ngx_http_auth_gate_jwt_verify_t));
 
         /* Compile variable */
         verify->variable = ngx_palloc(cf->pool,
@@ -1846,7 +1848,7 @@ jwt_verify_start(ngx_http_request_t *r,
     ngx_http_auth_gate_loc_conf_t *lcf)
 {
     ngx_http_auth_gate_ctx_t *ctx;
-    ngx_auth_gate_jwt_verify_t *verifies;
+    ngx_http_auth_gate_jwt_verify_t *verifies;
     ngx_uint_t i, j, unique_count;
     ngx_str_t *unique_uris;
     ngx_http_request_t *sr;
@@ -1930,7 +1932,7 @@ jwt_verify_start(ngx_http_request_t *r,
 
     ctx->jwks_results = ngx_pcalloc(r->pool,
                                     unique_count *
-                                    sizeof(ngx_auth_gate_jwks_fetch_result_t));
+                                    sizeof(ngx_http_auth_gate_jwks_fetch_result_t));
     if (ctx->jwks_results == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -1978,7 +1980,7 @@ jwt_verify_start(ngx_http_request_t *r,
 static ngx_int_t
 jwks_post_subrequest_handler(ngx_http_request_t *r, void *data, ngx_int_t rc)
 {
-    ngx_auth_gate_jwks_fetch_result_t *result = data;
+    ngx_http_auth_gate_jwks_fetch_result_t *result = data;
     ngx_http_auth_gate_ctx_t *ctx;
     ngx_buf_t *buf;
     ngx_chain_t *cl;
@@ -2013,7 +2015,7 @@ jwks_post_subrequest_handler(ngx_http_request_t *r, void *data, ngx_int_t rc)
         buf = &r->upstream->buffer;
         total_size = buf->last - buf->pos;
 
-        if (total_size > NGX_AUTH_GATE_MAX_JWKS_SIZE) {
+        if (total_size > NXE_JWX_MAX_JWKS_SIZE) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "auth_gate_jwt_verify: JWKS response too large: "
                           "%uz for '%V'", total_size, &result->jwks_uri);
@@ -2044,7 +2046,7 @@ jwks_post_subrequest_handler(ngx_http_request_t *r, void *data, ngx_int_t rc)
             }
         }
 
-        if (total_size > NGX_AUTH_GATE_MAX_JWKS_SIZE) {
+        if (total_size > NXE_JWX_MAX_JWKS_SIZE) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "auth_gate_jwt_verify: JWKS response too large: "
                           "%uz for '%V'", total_size, &result->jwks_uri);
@@ -2102,9 +2104,10 @@ static ngx_int_t
 jwt_verify_execute(ngx_http_request_t *r,
     ngx_http_auth_gate_loc_conf_t *lcf, ngx_http_auth_gate_ctx_t *ctx)
 {
-    ngx_auth_gate_jwt_verify_t *verifies;
-    ngx_auth_gate_jwks_fetch_result_t *result;
-    ngx_auth_gate_jwks_keyset_t *keyset;
+    ngx_http_auth_gate_jwt_verify_t *verifies;
+    ngx_http_auth_gate_jwks_fetch_result_t *result;
+    nxe_jwx_jwks_t *keyset;
+    nxe_jwx_token_t *token;
     ngx_uint_t i, j;
     ngx_str_t token_val;
     ngx_int_t rc;
@@ -2154,8 +2157,7 @@ jwt_verify_execute(ngx_http_request_t *r,
         if (result->keyset != NULL) {
             keyset = result->keyset;
         } else {
-            keyset = ngx_auth_gate_jwks_parse(r->pool, &result->body,
-                                              r->connection->log);
+            keyset = nxe_jwx_jwks_parse(&result->body, r->pool);
             if (keyset == NULL) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                               "auth_gate_jwt_verify: JWKS parse failed "
@@ -2182,9 +2184,17 @@ jwt_verify_execute(ngx_http_request_t *r,
             return verifies[i].error;
         }
 
+        /* Decode token (header + payload + signature) once for verify */
+        token = nxe_jwx_decode(&token_val, r->pool);
+        if (token == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "auth_gate_jwt_verify: token decode failed "
+                          "for variable '%V'", &verifies[i].variable_name);
+            return verifies[i].error;
+        }
+
         /* Verify signature */
-        rc = ngx_auth_gate_jws_verify(&token_val, keyset, r->pool,
-                                      r->connection->log);
+        rc = nxe_jwx_jws_verify(token, keyset, r->pool);
         if (rc != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "auth_gate_jwt_verify: signature verification "

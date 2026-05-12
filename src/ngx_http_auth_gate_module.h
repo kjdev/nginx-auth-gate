@@ -11,7 +11,7 @@
 #include <ngx_http.h>
 #include "ngx_auth_gate_field.h"
 #include "ngx_auth_gate_operator.h"
-#include "ngx_auth_gate_jwks.h"
+#include "nxe_jwx.h"
 
 /** auth_gate boolean check requirement (one auth_gate line) */
 typedef struct {
@@ -47,16 +47,16 @@ typedef struct {
     ngx_str_t                 variable_name;  /* variable name (dup check) */
     ngx_str_t                 jwks_uri;       /* /jwks_uri */
     ngx_int_t                 error;          /* error status code */
-} ngx_auth_gate_jwt_verify_t;
+} ngx_http_auth_gate_jwt_verify_t;
 
 /** JWKS fetch result (per unique URI) */
 typedef struct {
-    ngx_str_t                    jwks_uri; /* which URI this result belongs to */
-    ngx_str_t                    body; /* response body */
-    ngx_int_t                    status; /* HTTP status */
-    ngx_auth_gate_jwks_keyset_t *keyset;  /* cached parsed keyset (avoid re-parsing) */
-    unsigned                     done:1; /* fetch completed */
-} ngx_auth_gate_jwks_fetch_result_t;
+    ngx_str_t        jwks_uri; /* which URI this result belongs to */
+    ngx_str_t        body;     /* response body */
+    ngx_int_t        status;   /* HTTP status */
+    nxe_jwx_jwks_t  *keyset;   /* cached parsed keyset (avoid re-parsing) */
+    unsigned         done:1;   /* fetch completed */
+} ngx_http_auth_gate_jwks_fetch_result_t;
 
 /** auth_gate module location configuration */
 typedef struct {
@@ -64,7 +64,7 @@ typedef struct {
     ngx_array_t *require_compare;     /* ngx_auth_gate_requirement_t */
     ngx_array_t *require_json;        /* ngx_auth_gate_var_group_t */
     ngx_array_t *require_jwt;         /* ngx_auth_gate_var_group_t */
-    ngx_array_t *require_jwt_verify;  /* ngx_auth_gate_jwt_verify_t */
+    ngx_array_t *require_jwt_verify;  /* ngx_http_auth_gate_jwt_verify_t */
 } ngx_http_auth_gate_loc_conf_t;
 
 /** per-request context for runtime limits and subrequest tracking */
@@ -72,7 +72,7 @@ typedef struct {
     ngx_uint_t                         dynamic_regex_count; /* dynamic PCRE compilations */
 
     /* JWT verify subrequest management */
-    ngx_auth_gate_jwks_fetch_result_t *jwks_results;   /* result array */
+    ngx_http_auth_gate_jwks_fetch_result_t *jwks_results;   /* result array */
     ngx_uint_t                         jwks_expected;   /* unique URI count */
     ngx_uint_t                         jwks_fetched;    /* completed count */
     unsigned                           jwt_verify_started:1;
