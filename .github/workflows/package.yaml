@@ -9,6 +9,7 @@ permissions: {}
 
 env:
   container: ${{ github.repository }}/nginx
+  VERSION: ${{ github.event.release.tag_name }}
 
 defaults:
   run:
@@ -88,4 +89,35 @@ jobs:
           token: ${{ github.token }}
           keep-n-untagged: 0
         continue-on-error: true
+    timeout-minutes: 30
+
+  source:
+    permissions:
+      contents: write
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          set-safe-directory: true
+          submodules: true
+          token: ${{ github.token }}
+      - name: Create archive (tar.gz)
+        run: |
+          git archive --format=tar HEAD -o "${VERSION}-full.tar"
+          git submodule foreach --recursive 'git archive --format=tar --prefix="${displaypath}/" HEAD -o "${toplevel}/sub.tar" && tar -Af "${toplevel}/${VERSION}-full.tar" "${toplevel}/sub.tar" && rm "${toplevel}/sub.tar"'
+          gzip "${VERSION}-full.tar"
+      - name: Create archive (zip)
+        run: |
+          mkdir .extract && tar -xzf "${VERSION}-full.tar.gz" -C .extract
+          (cd .extract && zip -r ../"${VERSION}-full.zip" .)
+          rm -rf .extract
+      - name: Upload Release Asset
+        run: |
+          gh release upload "${VERSION}" "${VERSION}-full.tar.gz#Full Source code (tar.gz)" --clobber
+          gh release upload "${VERSION}" "${VERSION}-full.zip#Full Source code (zip)" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
     timeout-minutes: 30
