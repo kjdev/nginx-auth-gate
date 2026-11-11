@@ -5,6 +5,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Dependencies
+
+- Bumped the [nxe-jwx](https://github.com/kjdev/nxe-jwx) submodule from 0.3.0 to 0.4.0
+  - Adds `nxe_jwx_jwks_verify_raw_by_kid()` (detached signature verification keyed by raw JWK `kid`); fixes it to try every key sharing a duplicate `kid` instead of only the first match
+  - auth_gate's current code paths do not call the new API, so there is no behavioral change
+
 ## [0.5.0] - 2026-09-02
 
 ### Changed
